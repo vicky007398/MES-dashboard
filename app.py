@@ -12,6 +12,8 @@ import streamlit as st
 
 DB = Path(__file__).resolve().parent / "data" / "mes.sqlite3"
 COLUMNS = ["Serial No", "Time", "Stage", "Shift", "Grade", "Defect Position", "Defect Reason"]
+FINAL_STAGE = "Final inspection"
+FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect Location", "Defect Name"]
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
 
@@ -56,16 +58,26 @@ def read_export(file):
         for name in workbook.sheet_names:
             frame = workbook.parse(name, dtype=object, keep_default_na=False)
             headers = {str(column).strip().casefold(): column for column in frame.columns}
-            selected = [headers.get(old.casefold(), headers.get(new.casefold()))
-                        for old, new in zip(SOURCE, COLUMNS)]
-            if None in selected:
-                continue
+            final_export = all(
+                name.casefold() in headers for name in FINAL_SOURCE if name is not None
+            )
+            if final_export:
+                frame = frame.assign(**{"Stage": FINAL_STAGE})
+                selected = [
+                    headers[name.casefold()] if name is not None else "Stage"
+                    for name in FINAL_SOURCE
+                ]
+            else:
+                selected = [headers.get(old.casefold(), headers.get(new.casefold()))
+                            for old, new in zip(SOURCE, COLUMNS)]
+                if None in selected:
+                    continue
             rows = []
             skipped = 0
             for values in frame[selected].itertuples(index=False, name=None):
                 serial, _, stage, shift, grade, position, reason = map(clean_text, values)
                 time = clean_time(values[1])
-                if not any((serial, time, stage, shift, grade, position, reason)):
+                if not any((serial, time, shift, grade, position, reason)) and (final_export or not stage):
                     continue
                 if not all((serial, time, stage, grade)):
                     skipped += 1
@@ -123,11 +135,11 @@ def main():
     st.title("MES Defect Trends")
     initialize()
     with st.form("import"):
-        files = st.file_uploader("Select MES Excel exports", type=["xlsx", "xls"], accept_multiple_files=True)
+        files = st.file_uploader("Select Final Defect query Excel exports", type=["xlsx", "xls"], accept_multiple_files=True)
         submitted = st.form_submit_button("Import into local database")
     if submitted:
         if not files:
-            st.info("Choose an Excel file to import.")
+            st.info("Choose a Final Defect query Excel file to import.")
         for file in files:
             try:
                 rows, skipped = read_export(file)
@@ -141,6 +153,11 @@ def main():
     if history.empty:
         st.info("Import your first MES export to see the dashboard.")
         return
+
+    is_final = history["Stage"].eq(FINAL_STAGE)
+    if is_final.any() and not is_final.all():
+        source = st.selectbox("Export format", ["Final Defect query", "Module defect query"])
+        history = history.loc[is_final if source == "Final Defect query" else ~is_final].copy()
 
     history["Date"] = history["Time"].str[:10]
     history["Reasons"] = history["Defect Reason"].map(
