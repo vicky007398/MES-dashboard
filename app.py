@@ -156,52 +156,77 @@ def main():
 
     is_final = history["Stage"].eq(FINAL_STAGE)
     if is_final.any() and not is_final.all():
-        source = st.selectbox("Export format", ["Final Defect query", "Module defect query"])
+        source = st.radio("Export format", ["Final Defect query", "Module defect query"], horizontal=True)
         history = history.loc[is_final if source == "Final Defect query" else ~is_final].copy()
 
     history["Date"] = history["Time"].str[:10]
     history["Reasons"] = history["Defect Reason"].map(
         lambda value: sorted({part.strip() for part in value.split(";") if part.strip()})
     )
-    first = date.fromisoformat(history["Date"].min())
-    last = date.fromisoformat(history["Date"].max())
-    st.subheader("Filters")
-    left, right = st.columns(2)
-    start = left.date_input("From", first, min_value=first, max_value=last)
-    end = right.date_input("To", last, min_value=first, max_value=last)
+    available_dates = sorted(history["Date"].unique(), reverse=True)
+    first = date.fromisoformat(available_dates[-1])
+    last = date.fromisoformat(available_dates[0])
+    with st.container():
+        st.subheader("Grade counts")
+        grade_summary = st.empty()
+
+    st.subheader("Date selection")
+    mode = st.radio("Date mode", ["Single day", "Date range"], horizontal=True)
+    if mode == "Single day":
+        start = end = date.fromisoformat(st.selectbox("Date", available_dates))
+    else:
+        left, right = st.columns(2)
+        start = left.date_input("From", first, min_value=first, max_value=last)
+        end = right.date_input("To", last, min_value=first, max_value=last)
     if start > end:
         st.warning("Choose a To date on or after the From date.")
         return
 
     window = history[history["Date"].between(start.isoformat(), end.isoformat())]
-    options = sorted({reason for reasons in window["Reasons"] for reason in reasons}, key=str.casefold)
-    defect = st.selectbox("Defect reason", ["", *options], format_func=lambda value: value or "All")
-    matching = window
-    for label, container in zip(("Stage", "Shift", "Grade"), st.columns(3)):
-        selected = container.multiselect(label, sorted(set(window[label]) - {""}))
-        if selected:
-            matching = matching[matching[label].isin(selected)]
-    if defect:
-        matching = matching[matching["Reasons"].map(lambda reasons: defect in reasons)]
+    grade_counts = window["Grade"].value_counts().sort_index()
+    grade_summary.dataframe(
+        grade_counts.rename_axis("Grade").reset_index(name="Inspection records"),
+        hide_index=True,
+    )
 
-    left, right = st.columns(2)
+    matching = window
+    with st.expander("Stage, shift, and grade filters"):
+        for label, container in zip(("Stage", "Shift", "Grade"), st.columns(3)):
+            selected = container.multiselect(label, sorted(set(window[label]) - {""}))
+            if selected:
+                matching = matching[matching[label].isin(selected)]
+
+    records_with_defects = matching[matching["Reasons"].map(bool)]
+    left, middle, right = st.columns(3)
     left.metric("Inspection records", f"{len(matching):,}")
-    right.metric("Unique modules", f"{matching['Serial No'].nunique():,}")
-    st.subheader("Daily trend")
-    days = pd.date_range(start, end).strftime("%Y-%m-%d")
-    counts = matching.groupby("Date").size()
-    source_days = set(window["Date"])
-    trend = pd.DataFrame({
-        "Date": pd.to_datetime(days),
-        "Records": [int(counts.get(day, 0)) if day in source_days else None for day in days],
-    })
-    st.bar_chart(trend, x="Date", y="Records")
-    st.caption("Days without imported records are left blank.")
+    middle.metric("Unique modules", f"{matching['Serial No'].nunique():,}")
+    right.metric("Records with defects", f"{len(records_with_defects):,}")
+
+    if start == end:
+        st.subheader("Hourly defect counts")
+        hours = pd.date_range(start, periods=24, freq="h").strftime("%H:%M")
+        hourly = records_with_defects.groupby(records_with_defects["Time"].str[11:13] + ":00").size()
+        trend = hourly.reindex(hours, fill_value=0).rename("Records with defects").rename_axis("Hour").reset_index()
+        if matching.empty:
+            st.info("No records were imported for this date.")
+        else:
+            st.bar_chart(trend, x="Hour", y="Records with defects")
+            st.dataframe(trend, hide_index=True)
+    else:
+        st.subheader("Daily defect counts")
+        days = pd.date_range(start, end).strftime("%Y-%m-%d")
+        counts = records_with_defects.groupby("Date").size()
+        source_days = set(window["Date"])
+        trend = pd.DataFrame({
+            "Date": pd.to_datetime(days),
+            "Records with defects": [int(counts.get(day, 0)) if day in source_days else None for day in days],
+        })
+        st.bar_chart(trend, x="Date", y="Records with defects")
+        st.caption("Days without imported records are left blank.")
+    st.caption("Each inspection record with a named defect counts once. Hours use MES Operating Time.")
 
     st.subheader("Top defect reasons")
     reasons = matching["Reasons"].explode().dropna()
-    if defect:
-        reasons = reasons[reasons.eq(defect)]
     if reasons.empty:
         st.info("No defect reasons match the current filters.")
     else:

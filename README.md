@@ -29,3 +29,11 @@ PASS/FAIL result are outside this dashboard's defect-name analysis.
 
 If the database contains both export formats, the dashboard defaults to
 Final Defect query and offers a selector for viewing the older records.
+
+## Date selection and counts
+
+The grade summary shows inspection records by grade for the selected dates.
+Choose **Single day** and select an imported date from the dropdown for 24 hourly
+counts. Choose **Date range** to use the From and To calendars and view daily
+counts. Each inspection record with a named defect counts once in the trend.
+The Top defect reasons table shows the breakdown by reason.
