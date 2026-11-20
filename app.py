@@ -86,6 +86,22 @@ DASHBOARD_STYLE = """
     border-radius: .8rem;
     background: #091729e8;
 }
+[class*="st-key-grade_controls_"] [data-testid="stButton"] button {
+    min-height: 4.6rem;
+    color: #f8faff;
+    background: #14283f;
+    border: 1px solid #59708b;
+    border-top: 2px solid #ff9b58;
+}
+[class*="st-key-grade_controls_"] [data-testid="stButton"] button:is(:hover,:focus-visible),
+[class*="st-key-grade_controls_"] [data-testid="stBaseButton-primary"] {
+    background: #693a38;
+    border-color: #ffc47e;
+}
+[class*="st-key-grade_controls_"] [data-testid="stButton"] button p {
+    font-size: clamp(1rem, 2vw, 1.55rem);
+    font-weight: 700;
+}
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
     [data-testid="stTabs"] [role="tab"] { padding-inline: .4rem; }
@@ -110,6 +126,12 @@ def initialize():
             )
         """)
         db.execute("CREATE INDEX IF NOT EXISTS inspection_time ON inspections(time)")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS gp_defect_reasons (
+                record_key TEXT PRIMARY KEY REFERENCES inspections(record_key),
+                reason TEXT NOT NULL
+            )
+        """)
 
 
 def clean_text(value):
@@ -160,32 +182,47 @@ def read_export(file):
                     skipped += 1
                     continue
                 grade = grade.upper()
+                gp_reason = reason if grade == "GP" else ""
                 if grade == "GP":
                     position = reason = ""
-                rows.append((serial.upper(), time, stage, shift, grade, position, reason))
+                rows.append((serial.upper(), time, stage, shift, grade, position, reason, gp_reason))
             if rows:
                 return rows, skipped
     raise ValueError("No usable inspection records found. Check the column headers and Operating Time.")
 
 
 def save_rows(rows):
-    values = [(sha256(json.dumps(row, ensure_ascii=False).encode()).hexdigest(), *row) for row in rows]
+    values = [
+        (sha256(json.dumps(row[:-1], ensure_ascii=False).encode()).hexdigest(), *row[:-1])
+        for row in rows
+    ]
+    gp_reasons = [(record[0], row[-1]) for record, row in zip(values, rows) if row[-1]]
     with closing(sqlite3.connect(DB)) as db, db:
         db.executemany("""
             INSERT INTO inspections (record_key, serial, time, stage, shift, grade, position, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(record_key) DO NOTHING
         """, values)
-        return db.total_changes
+        added = db.total_changes
+        db.executemany("""
+            INSERT INTO gp_defect_reasons (record_key, reason) VALUES (?, ?)
+            ON CONFLICT(record_key) DO UPDATE SET reason = excluded.reason
+            WHERE gp_defect_reasons.reason <> excluded.reason
+        """, gp_reasons)
+        return added
 
 
 def load_history():
     with closing(sqlite3.connect(DB)) as db:
         frame = pd.read_sql_query(
-            "SELECT serial, time, stage, shift, grade, position, reason FROM inspections ORDER BY time",
+            """SELECT i.serial, i.time, i.stage, i.shift, i.grade, i.position, i.reason,
+                      COALESCE(gp.reason, i.reason)
+               FROM inspections AS i
+               LEFT JOIN gp_defect_reasons AS gp ON gp.record_key = i.record_key
+               ORDER BY i.time""",
             db,
         )
-    frame.columns = COLUMNS
+    frame.columns = [*COLUMNS, "Pareto Reason"]
     return frame
 
 
@@ -207,12 +244,90 @@ def period_summary(history, start, end):
     return records["Grade"].value_counts(), len(records), trend
 
 
+def defect_pareto(records):
+    counts = (
+        records["Pareto Reason"]
+        .map(lambda value: sorted({reason.strip() for reason in value.split(";") if reason.strip()}))
+        .explode().dropna().value_counts().rename_axis("Defect").reset_index(name="Count")
+        .sort_values(["Count", "Defect"], ascending=[False, True])
+    )
+    total = counts["Count"].sum()
+    if total:
+        counts["Share"] = counts["Count"] / total
+        counts["Cumulative share"] = counts["Count"].cumsum() / total
+        counts["Bar label"] = [
+            f"{count:,} · {share:.1%}" for count, share in zip(counts["Count"], counts["Share"])
+        ]
+    return counts
+
+
+def show_pareto(history, start, end, grade):
+    st.subheader(f"{grade} Defect Pareto")
+    records = history.loc[
+        history["Grade"].eq(grade) & history["Date"].between(start.isoformat(), end.isoformat())
+    ]
+    if records.empty:
+        st.info(f"No {grade} records were imported for this period.")
+        return
+    counts = defect_pareto(records)
+    if counts.empty:
+        message = f"No defect reasons are available for {grade} in this period."
+        if grade == "GP":
+            message += " Reimport the original MES export to recover any GP reasons it contains."
+        st.info(message)
+        return
+
+    st.caption(f"{counts['Count'].sum():,} defect mentions · percentages use all named defect mentions for {grade}.")
+    base = alt.Chart(counts).encode(
+        y=alt.Y("Defect:N", sort=counts["Defect"].tolist(), title=None,
+                axis=alt.Axis(labelLimit=260)),
+        tooltip=[
+            "Defect:N", "Count:Q", alt.Tooltip("Share:Q", format=".1%"),
+            alt.Tooltip("Cumulative share:Q", format=".1%"),
+        ],
+    )
+    count_axis = alt.X("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.35]),
+                       axis=alt.Axis(tickMinStep=1))
+    bars = base.mark_bar(color="#ff9c50", cornerRadiusEnd=4).encode(x=count_axis)
+    labels = base.mark_text(align="left", dx=7, color="#f8faff", fontWeight="bold").encode(
+        x=count_axis, text="Bar label:N"
+    )
+    cumulative = base.mark_line(color="#81d8ff", point=True).encode(
+        x=alt.X("Cumulative share:Q", scale=alt.Scale(domain=[0, 1]),
+                axis=alt.Axis(orient="top", format=".0%", grid=False)),
+        order=alt.Order("Cumulative share:Q"),
+    )
+    chart = alt.layer(alt.layer(bars, labels), cumulative).resolve_scale(x="independent").properties(
+        height=max(240, 30 * len(counts)), background="transparent"
+    ).configure_axis(
+        labelColor="#d3e0ee", titleColor="#eaf2fb",
+        domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
+    ).configure_view(stroke=None)
+    with st.container(**({"height": 410} if len(counts) > 10 else {}), border=False):
+        st.altair_chart(chart, use_container_width=True, theme=None)
+
+
 def show_period(history, start, end, period_key):
     grades, total, trend = period_summary(history, start, end)
     st.caption(f"{start:%d %b %Y} to {end:%d %b %Y} · {total:,} inspection records")
-    for grade, column in zip(GRADES, st.columns(len(GRADES))):
-        share = f"{grades.get(grade, 0) / total:.2%}" if total else "—"
-        column.metric(f"{grade} %", share, border=True)
+    selection_key = f"selected_grade_{period_key}"
+    selected_grade = st.session_state.get(selection_key)
+    with st.container(key=f"grade_controls_{period_key}"):
+        for grade, column in zip(GRADES, st.columns(len(GRADES))):
+            share = f"{grades.get(grade, 0) / total:.2%}" if total else "—"
+            if grade == "G1":
+                column.metric(f"{grade} %", share, border=True)
+                continue
+            column.button(
+                f"{grade}  {share}", key=f"{period_key}_{grade}",
+                type="primary" if selected_grade == grade else "secondary",
+                use_container_width=True,
+                on_click=st.session_state.__setitem__,
+                args=(selection_key, None if selected_grade == grade else grade),
+            )
+    if selected_grade:
+        show_pareto(history, start, end, selected_grade)
+        return
 
     st.subheader("Defect Trend")
     if not total:
