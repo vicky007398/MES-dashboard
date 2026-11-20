@@ -2,6 +2,7 @@ from collections import defaultdict
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
+from inspect import signature
 from io import BytesIO
 from pathlib import Path
 import json
@@ -406,6 +407,7 @@ DASHBOARD_STYLE = """
     font: 500 .8rem Inter, Arial, sans-serif;
 }
 .pareto-zero strong { color: #18253b; font-size: 1.8rem; line-height: 1; }
+.st-key-pareto_heatmap .mark-text.role-mark { pointer-events: none; }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
@@ -519,6 +521,12 @@ def initialize():
                 reason TEXT NOT NULL
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS inspection_laminators (
+                record_key TEXT PRIMARY KEY REFERENCES inspections(record_key),
+                location TEXT NOT NULL
+            )
+        """)
 
 
 def clean_text(value):
@@ -558,10 +566,12 @@ def read_export(file):
                             for old, new in zip(SOURCE, COLUMNS)]
                 if None in selected:
                     continue
+            laminator = headers.get("laminator no")
+            frame = frame.assign(_laminator=frame[laminator] if laminator is not None else "")
             rows = []
             skipped = 0
-            for values in frame[selected].itertuples(index=False, name=None):
-                serial, _, stage, shift, grade, position, reason = map(clean_text, values)
+            for values in frame[[*selected, "_laminator"]].itertuples(index=False, name=None):
+                serial, _, stage, shift, grade, position, reason, lami_location = map(clean_text, values)
                 time = clean_time(values[1])
                 if not any((serial, time, shift, grade, position, reason)) and (final_export or not stage):
                     continue
@@ -572,7 +582,7 @@ def read_export(file):
                 gp_reason = reason if grade == "GP" else ""
                 if grade == "GP":
                     position = reason = ""
-                rows.append((serial.upper(), time, stage, shift, grade, position, reason, gp_reason))
+                rows.append((serial.upper(), time, stage, shift, grade, position, reason, gp_reason, lami_location))
             if rows:
                 return rows, skipped
     raise ValueError("No usable inspection records found. Check the column headers and Operating Time.")
@@ -580,10 +590,11 @@ def read_export(file):
 
 def save_rows(rows):
     values = [
-        (sha256(json.dumps(row[:-1], ensure_ascii=False).encode()).hexdigest(), *row[:-1])
+        (sha256(json.dumps(row[:-2], ensure_ascii=False).encode()).hexdigest(), *row[:-2])
         for row in rows
     ]
-    gp_reasons = [(record[0], row[-1]) for record, row in zip(values, rows) if row[-1]]
+    gp_reasons = [(record[0], row[-2]) for record, row in zip(values, rows) if row[-2]]
+    laminators = [(record[0], row[-1]) for record, row in zip(values, rows) if row[-1]]
     with closing(sqlite3.connect(DB)) as db, db:
         db.executemany("""
             INSERT INTO inspections (record_key, serial, time, stage, shift, grade, position, reason)
@@ -596,6 +607,11 @@ def save_rows(rows):
             ON CONFLICT(record_key) DO UPDATE SET reason = excluded.reason
             WHERE gp_defect_reasons.reason <> excluded.reason
         """, gp_reasons)
+        db.executemany("""
+            INSERT INTO inspection_laminators (record_key, location) VALUES (?, ?)
+            ON CONFLICT(record_key) DO UPDATE SET location = excluded.location
+            WHERE inspection_laminators.location <> excluded.location
+        """, laminators)
         return added
 
 
@@ -603,13 +619,14 @@ def load_history():
     with closing(sqlite3.connect(DB)) as db:
         frame = pd.read_sql_query(
             """SELECT i.serial, i.time, i.stage, i.shift, i.grade, i.position, i.reason,
-                      COALESCE(gp.reason, i.reason)
+                      COALESCE(gp.reason, i.reason), COALESCE(lami.location, '')
                FROM inspections AS i
                LEFT JOIN gp_defect_reasons AS gp ON gp.record_key = i.record_key
+               LEFT JOIN inspection_laminators AS lami ON lami.record_key = i.record_key
                ORDER BY i.time""",
             db,
         )
-    frame.columns = [*COLUMNS, "Pareto Reason"]
+    frame.columns = [*COLUMNS, "Pareto Reason", "Laminator Location"]
     return frame
 
 
@@ -651,8 +668,8 @@ CELL_LOCATION = re.compile(r"(?<![A-Z0-9])([A-F])\s*(2[0-2]|1[0-9]|[1-9])(?![A-Z
 
 def module_heatmap(records, defect):
     modules_by_cell = defaultdict(set)
-    for serial, reason, position in records[
-        ["Serial No", "Pareto Reason", "Defect Position"]
+    for serial, reason, position, laminator in records[
+        ["Serial No", "Pareto Reason", "Defect Position", "Laminator Location"]
     ].itertuples(index=False, name=None):
         reasons = [part.strip() for part in reason.split(";")]
         if defect not in reasons:
@@ -668,15 +685,38 @@ def module_heatmap(records, defect):
         cells = {(row, int(column)) for entry in selected
                  for row, column in CELL_LOCATION.findall(entry.upper())}
         for cell in cells:
-            modules_by_cell[cell].add(serial)
+            modules_by_cell[cell].add((serial, laminator))
 
-    return pd.DataFrame([
-        (row, column, f"{row}{column}", len(modules_by_cell.get((row, column), ())))
+    grid = pd.DataFrame([
+        (row, column, f"{row}{column}", len({serial for serial, _ in modules_by_cell[row, column]}))
         for row in "ABCDEF" for column in range(1, 23)
     ], columns=["Row", "Column", "Location", "Modules"])
+    return grid, {f"{row}{column}": modules for (row, column), modules in modules_by_cell.items()}
 
 
-def show_module_heatmap(records, defect):
+def reset_cell_selection():
+    st.session_state["cell_selection_version"] = st.session_state.get("cell_selection_version", 0) + 1
+
+
+def show_cell_details(location, defect, modules):
+    options = {"on_dismiss": reset_cell_selection} if "on_dismiss" in signature(st.dialog).parameters else {}
+
+    @st.dialog(f"Cell {location}", width="large", **options)
+    def details():
+        st.write(defect)
+        st.dataframe(
+            pd.DataFrame(sorted(modules), columns=["Barcode No", "Laminator Location"])
+            .replace({"Laminator Location": {"": "Unavailable"}}),
+            hide_index=True,
+        )
+        if st.button("Done"):
+            reset_cell_selection()
+            st.rerun()
+
+    details()
+
+
+def show_module_heatmap(records, defect, selection_context=None):
     with st.container(key="heatmap_heading"):
         title, legend = st.columns([1.5, 1], vertical_alignment="center")
         title.subheader(f"Module Heat Map · {defect}" if defect else "Module Heat Map")
@@ -688,7 +728,7 @@ def show_module_heatmap(records, defect):
         f'<div class="pareto-legend" aria-label="Heat map legend">{swatches}</div>',
         unsafe_allow_html=True,
     )
-    grid = module_heatmap(records if defect else records.iloc[:0], defect)
+    grid, modules_by_cell = module_heatmap(records if defect else records.iloc[:0], defect)
     grid["Display column"] = grid["Column"] + grid["Column"].ge(12).astype(int)
     grid["Label"] = [
         f"{cell} · {count:,}" if count else cell
@@ -710,6 +750,11 @@ def show_module_heatmap(records, defect):
         text="Label:N",
         color=alt.condition("datum.Modules >= 5", alt.value("#ffffff"), alt.value("#421621")),
     )
+    if defect:
+        pick = alt.selection_point(name="cell_pick", fields=["Location"], toggle=False)
+        tiles = tiles.mark_rect(
+            cornerRadius=2, stroke="#d5b8c0", strokeWidth=.65, cursor="pointer",
+        ).add_params(pick)
     seam = pd.DataFrame({"Row": list("ABCDEF"), "Display column": 12, "Marker": "*"})
     stars = alt.Chart(seam).mark_text(
         font="Inter", fontSize=12, fontWeight="bold", color="#52657e", dy=2,
@@ -719,7 +764,20 @@ def show_module_heatmap(records, defect):
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_view(stroke=None)
     with st.container(key="pareto_heatmap"):
-        st.altair_chart(chart, use_container_width=True, theme=None)
+        if not defect:
+            st.altair_chart(chart, use_container_width=True, theme=None)
+            return
+        version = st.session_state.get("cell_selection_version", 0)
+        event = st.altair_chart(
+            chart, use_container_width=True, theme=None, on_select="rerun",
+            selection_mode="cell_pick", key=f"cell_{selection_context}_{defect}_{version}",
+        )
+    selected = event.selection.get("cell_pick", [])
+    if selected:
+        location = selected[0].get("Location")
+        modules = modules_by_cell.get(location)
+        if modules:
+            show_cell_details(location, defect, modules)
 
 
 def show_pareto(records, period_total, start, end, grade):
@@ -884,7 +942,7 @@ def main():
     period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
     records = period.loc[period["Grade"].eq(grade)]
     defect = show_pareto(records, len(period), start, end, grade)
-    show_module_heatmap(records, defect)
+    show_module_heatmap(records, defect, f"{grade}_{start}_{end}")
 
 
 if __name__ == "__main__":
