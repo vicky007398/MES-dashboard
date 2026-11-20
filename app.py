@@ -812,8 +812,7 @@ def show_pareto(records, period_total, start, end, grade):
     )
     dense = len(counts) > 12
     labels = json.dumps([
-        (name[:12] + "…" if len(name) > 13 else name) if dense
-        else wrap(name, width=15, max_lines=3, placeholder="…")
+        wrap(name, width=19 if dense else 22)
         for name in counts["Defect"]
     ])
     maximum = float(counts["Count"].max())
@@ -821,7 +820,8 @@ def show_pareto(records, period_total, start, end, grade):
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=270 if dense else 0,
-                              labelLimit=65 if dense else 95, labelOverlap=False, labelLineHeight=12, labelPadding=6, ticks=False)),
+                              labelLimit=0, labelOverlap=False, labelFontSize=8 if dense else 10,
+                              labelLineHeight=8 if dense else 11, labelPadding=6, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share of period:Q", format=".2%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
@@ -871,7 +871,7 @@ def show_pareto(records, period_total, start, end, grade):
         alt.layer(bars, value_labels, quantities),
         alt.layer(cumulative, cumulative_labels),
     ).resolve_scale(y="independent").properties(
-        height=149, background="transparent",
+        height=130, background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#344760", titleColor="#18253b",
