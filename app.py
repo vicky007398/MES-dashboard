@@ -308,7 +308,7 @@ DASHBOARD_STYLE = """
 [data-testid="stHeader"] { display: none; }
 [data-testid="stMainBlockContainer"] {
     max-width: none;
-    padding: .55rem clamp(.75rem, 2vw, 2rem) .6rem;
+    padding: .2rem clamp(.75rem, 2vw, 2rem) .6rem;
 }
 [data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
     color: #18253b;
@@ -316,12 +316,14 @@ DASHBOARD_STYLE = """
     padding-bottom: .15rem;
 }
 .st-key-dashboard_header {
-    padding: .2rem 0 .35rem;
+    padding: 0 0 .55rem;
     border-bottom: 1px solid #cfdae9;
 }
 .st-key-dashboard_header h1 {
     font-size: clamp(1.3rem, 2.2vw, 2rem);
     text-align: center;
+    line-height: 1.12;
+    padding-block: 0;
 }
 .dashboard-logo {
     display: block;
@@ -466,7 +468,6 @@ DASHBOARD_STYLE = """
 @media (min-width: 701px) and (max-height: 690px) {
     [data-testid="stMainBlockContainer"] {
         --compact-scale: .83;
-        padding-top: .45rem;
         zoom: var(--compact-scale);
     }
     /* Vega measures the zoomed width. Restore its horizontal fill without adding height. */
@@ -476,9 +477,6 @@ DASHBOARD_STYLE = """
     }
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
     .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
-}
-@media (max-width: 700px) {
-    [data-testid="stMainBlockContainer"] { padding-top: .55rem; }
 }
 
 [data-testid="stPopoverBody"], [data-testid="stFileUploaderDropzone"] {
