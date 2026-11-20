@@ -20,8 +20,8 @@ FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect L
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
 
-STRINGER_PALETTE = ("#3B82F6", "#22D3EE", "#16C784", "#A3E635", "#F0B90B", "#F97316")
-CUMULATIVE_COLOR = "#19D68B"
+BAR_COLOR = "#667487"
+CUMULATIVE_COLOR = "#cbd2dc"
 
 DASHBOARD_STYLE = """
 <style>
@@ -90,11 +90,6 @@ DASHBOARD_STYLE = """
 [data-testid="stRadio"] label:has(input:checked) > div:first-child { background: #3972f6; }
 .st-key-grade_summary table tbody tr:nth-child(even) { background: #121e33; }
 [class*="st-key-pareto_"] {
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-color: #4d6488 #101924;
-    scrollbar-width: auto;
-    overscroll-behavior-x: contain;
     padding: .3rem clamp(.35rem, 1vw, .85rem);
     border: 1px solid #25344c;
     border-radius: .8rem;
@@ -392,63 +387,66 @@ def show_pareto(history, start, end, grade):
         st.info(message)
         return
 
-    gradient = ", ".join(STRINGER_PALETTE)
     legend.markdown(
         f'<div class="pareto-legend" aria-label="Chart legend">'
-        f'<span><i style="background:linear-gradient(90deg,{gradient})"></i>Defect count</span>'
+        f'<span><i style="background:{BAR_COLOR}"></i>Defect count</span>'
         f'<span>% of period</span>'
         f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
-    wrapped = [wrap(name, width=15, max_lines=3, placeholder="…") for name in counts["Defect"]]
-    counts = counts.assign(
-        Rank=range(len(counts)),
-        Accent=[STRINGER_PALETTE[i % len(STRINGER_PALETTE)] for i in range(len(counts))],
-    )
-    labels = json.dumps(wrapped)
+    dense = len(counts) > 12
+    labels = json.dumps([
+        (name[:12] + "…" if len(name) > 13 else name) if dense
+        else wrap(name, width=15, max_lines=3, placeholder="…")
+        for name in counts["Defect"]
+    ])
+    maximum = float(counts["Count"].max())
+    counts = counts.assign(Rank=range(len(counts)), BarBase=-maximum * .29)
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
-                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
-                              labelLimit=95, labelOverlap=False, labelLineHeight=12, labelPadding=19, ticks=False)),
+                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=270 if dense else 0,
+                              labelLimit=65 if dense else 95, labelOverlap=False, labelLineHeight=12, labelPadding=6, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share of period:Q", format=".2%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
         ],
     )
-    count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
-                       axis=None)
-    accent = alt.Color("Accent:N", scale=None, legend=None)
+    # Reserve an equal base inside each bar so even small counts can hold a label.
+    count_scale = alt.Scale(domain=[-maximum * .29, maximum * 1.25], nice=False)
+    count_axis = alt.Y(
+        "Count:Q", scale=count_scale, axis=None,
+    )
     chart_key = f"defect_{grade}_{start}_{end}"
     active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=False)
-    bars = base.mark_bar(cornerRadiusEnd=4, cursor="pointer").encode(
-        y=count_axis, color=accent, opacity=alt.condition(pick, alt.value(1), alt.value(.4)),
+    bars = base.mark_bar(color=BAR_COLOR, cornerRadiusEnd=3, cursor="pointer").encode(
+        y=count_axis, y2="BarBase:Q", opacity=alt.condition(pick, alt.value(1), alt.value(.4)),
     ).add_params(pick)
     value_labels = base.mark_text(
-        dy=-8, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
+        dy=-8, color="#f8faff", font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
-        baseline="top", dy=4, font="Inter", fontSize=10, fontWeight="bold"
-    ).encode(y=alt.value("height"), text=alt.Text("Count:Q", format=",d"), color=accent)
+        baseline="bottom", dy=-3, color="#ffffff", font="Inter",
+        fontSize=8 if dense else 10, fontWeight="bold"
+    ).encode(
+        y=alt.Y("BarBase:Q", scale=count_scale, axis=None),
+        text=alt.Text("Count:Q", format=",d"),
+    )
     cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
         y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
                 axis=None),
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
-        height=110 if active_selection else 215, background="transparent"
+        height=101 if active_selection else 205, background="transparent"
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", grid=False,
     ).configure_view(stroke=None)
-    # Use a scrollable plot when the number of defects would crowd the labels.
-    wide = len(counts) > 9
-    if wide:
-        chart = chart.properties(width=84 * len(counts))
     with st.container(key=f"pareto_{grade}"):
         event = st.altair_chart(
-            chart, use_container_width=not wide, theme=None, on_select="rerun",
+            chart, use_container_width=True, theme=None, on_select="rerun",
             selection_mode="defect_pick", key=chart_key,
         )
     selected = event.selection.get("defect_pick", [])
