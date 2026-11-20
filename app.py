@@ -24,7 +24,7 @@ SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "D
 BAR_COLOR = "#2463d7"
 SELECTED_BAR_COLOR = "#a91435"
 MUTED_BAR_COLOR = "#b7c9e9"
-CUMULATIVE_COLOR = "#08745d"
+CUMULATIVE_COLOR = "#4e276c"
 HEAT_BANDS = (
     ("0", "#ffffff"), ("1", "#ffd6df"), ("2–4", "#f88ca3"),
     ("5–9", "#ce3657"), ("10+", "#8e1534"),
@@ -407,7 +407,8 @@ DASHBOARD_STYLE = """
     font: 500 .8rem Inter, Arial, sans-serif;
 }
 .pareto-zero strong { color: #18253b; font-size: 1.8rem; line-height: 1; }
-.st-key-pareto_heatmap .mark-text.role-mark { pointer-events: none; }
+.st-key-pareto_heatmap .mark-text.role-mark,
+[class*="st-key-pareto_G"] .mark-text.role-mark { pointer-events: none; }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
@@ -852,7 +853,10 @@ def show_pareto(records, period_total, start, end, grade):
     cumulative_y = alt.Y(
         "Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12], nice=False), axis=None,
     )
-    cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
+    cumulative = base.mark_line(
+        color=CUMULATIVE_COLOR,
+        point=alt.OverlayMarkDef(fill="#ffffff", stroke=CUMULATIVE_COLOR, strokeWidth=1.5, size=32),
+    ).encode(
         y=cumulative_y, order=alt.Order("Rank:Q"),
     )
     # Offset line labels the other way when they would overlap the bar's percentage.
@@ -860,13 +864,18 @@ def show_pareto(records, period_total, start, end, grade):
         f"abs(datum['Cumulative share'] / 1.12 - "
         f"(datum.Count + {maximum * .29}) / {maximum * 1.54}) < 0.10"
     )
-    cumulative_labels = base.mark_text(
-        dy=alt.ExprRef(expr=f"{near_bar_label} ? 12 : -9"),
-        color=CUMULATIVE_COLOR, font="Inter", fontSize=8 if dense else 10, fontWeight="bold",
-    ).encode(y=cumulative_y, text=alt.Text("Cumulative share:Q", format=".1%"))
+    marker_labels = base.encode(y=cumulative_y, text=alt.Text("Cumulative share:Q", format=".1%"))
+    marker_text_style = {
+        "dy": alt.ExprRef(expr=f"{near_bar_label} ? 12 : -9"),
+        "font": "Inter", "fontSize": 8 if dense else 10, "fontWeight": "bold",
+    }
+    label_outline = marker_labels.mark_text(
+        fill="#ffffff", stroke="#ffffff", strokeWidth=3, aria=False, **marker_text_style
+    )
+    cumulative_labels = marker_labels.mark_text(color=CUMULATIVE_COLOR, **marker_text_style)
     chart = alt.layer(
         alt.layer(bars, value_labels, quantities),
-        alt.layer(cumulative, cumulative_labels),
+        alt.layer(cumulative, label_outline, cumulative_labels),
     ).resolve_scale(y="independent").properties(
         height=149, background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
