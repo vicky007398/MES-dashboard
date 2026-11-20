@@ -608,7 +608,7 @@ def main():
             )
         with grade_buttons, st.container(key="grade_buttons"):
             grade = st.segmented_control(
-                "Grade", ("G1", "G2", "G3", "G4"), default="G2", label_visibility="collapsed"
+                "Grade", GRADES[2:], default="G2", label_visibility="collapsed"
             )
     _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
     grade = grade or "G2"
