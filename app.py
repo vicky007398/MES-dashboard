@@ -109,12 +109,15 @@ DASHBOARD_STYLE = """
 }
 .st-key-grade_summary table {
     width: 100%;
+    table-layout: fixed;
     color: #f8faff;
     background: #0c1b2e;
 }
 .st-key-grade_summary table th,
 .st-key-grade_summary table td {
-    padding: .35rem .85rem;
+    width: 20%;
+    padding: .35rem clamp(.2rem, 1vw, .85rem);
+    overflow-wrap: anywhere;
     text-align: center;
     border-color: #526c8a77;
 }
@@ -263,7 +266,7 @@ def grade_summary(history, periods):
     return pd.DataFrame(summary, index=pd.Index(GRADES, name="Grade"))
 
 
-def defect_pareto(records):
+def defect_pareto(records, period_total):
     counts = (
         records["Pareto Reason"]
         .map(lambda value: sorted({reason.strip() for reason in value.split(";") if reason.strip()}))
@@ -272,23 +275,22 @@ def defect_pareto(records):
     )
     total = counts["Count"].sum()
     if total:
-        counts["Share"] = counts["Count"] / total
+        counts["Share of period"] = counts["Count"] / period_total
         counts["Cumulative share"] = counts["Count"].cumsum() / total
         counts["Bar label"] = [
-            f"{count:,} · {share:.1%}" for count, share in zip(counts["Count"], counts["Share"])
+            f"{count:,} · {share:.2%}" for count, share in zip(counts["Count"], counts["Share of period"])
         ]
     return counts
 
 
 def show_pareto(history, start, end, grade):
     st.subheader(f"{grade} Defect Pareto")
-    records = history.loc[
-        history["Grade"].eq(grade) & history["Date"].between(start.isoformat(), end.isoformat())
-    ]
+    period_records = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
+    records = period_records.loc[period_records["Grade"].eq(grade)]
     if records.empty:
         st.info(f"No {grade} records were imported for this period.")
         return
-    counts = defect_pareto(records)
+    counts = defect_pareto(records, len(period_records))
     if counts.empty:
         message = f"No defect reasons are available for {grade} in this period."
         if grade == "GP":
@@ -296,7 +298,10 @@ def show_pareto(history, start, end, grade):
         st.info(message)
         return
 
-    st.caption(f"{counts['Count'].sum():,} defect mentions · percentages use all named defect mentions for {grade}.")
+    st.caption(
+        f"Bar percentages use all {len(period_records):,} inspection records in this period. "
+        f"The line shows cumulative share of {grade} defect mentions."
+    )
     wrapped = [wrap(name, width=15) for name in counts["Defect"]]
     counts = counts.assign(Rank=range(len(counts)))
     labels = json.dumps(wrapped)
@@ -305,7 +310,7 @@ def show_pareto(history, start, end, grade):
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
                               labelLimit=100, labelLineHeight=14, labelPadding=9, ticks=False)),
         tooltip=[
-            "Defect:N", "Count:Q", alt.Tooltip("Share:Q", format=".1%"),
+            "Defect:N", "Count:Q", alt.Tooltip("Share of period:Q", format=".2%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
         ],
     )
