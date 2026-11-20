@@ -849,12 +849,25 @@ def show_pareto(records, period_total, start, end, grade):
             alt.value("#ffffff"), alt.value("#233675"),
         ),
     )
-    cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
-        y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
-                axis=None),
-        order=alt.Order("Rank:Q"),
+    cumulative_y = alt.Y(
+        "Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12], nice=False), axis=None,
     )
-    chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
+    cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
+        y=cumulative_y, order=alt.Order("Rank:Q"),
+    )
+    # Offset line labels the other way when they would overlap the bar's percentage.
+    near_bar_label = (
+        f"abs(datum['Cumulative share'] / 1.12 - "
+        f"(datum.Count + {maximum * .29}) / {maximum * 1.54}) < 0.10"
+    )
+    cumulative_labels = base.mark_text(
+        dy=alt.ExprRef(expr=f"{near_bar_label} ? 12 : -9"),
+        color=CUMULATIVE_COLOR, font="Inter", fontSize=8 if dense else 10, fontWeight="bold",
+    ).encode(y=cumulative_y, text=alt.Text("Cumulative share:Q", format=".1%"))
+    chart = alt.layer(
+        alt.layer(bars, value_labels, quantities),
+        alt.layer(cumulative, cumulative_labels),
+    ).resolve_scale(y="independent").properties(
         height=149, background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_axis(
