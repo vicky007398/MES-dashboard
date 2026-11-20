@@ -20,7 +20,7 @@ FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect L
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
 
-BAR_COLOR = "#667487"
+BAR_PALETTE = ("#3B82F6", "#22D3EE", "#16C784", "#A3E635", "#F0B90B", "#F97316")
 CUMULATIVE_COLOR = "#cbd2dc"
 
 DASHBOARD_STYLE = """
@@ -103,7 +103,7 @@ DASHBOARD_STYLE = """
 }
 .st-key-grade_summary table th,
 .st-key-grade_summary table td {
-    width: 20%;
+    width: 11.111%;
     padding: .18rem clamp(.2rem, .8vw, .65rem);
     overflow-wrap: anywhere;
     text-align: center;
@@ -114,10 +114,12 @@ DASHBOARD_STYLE = """
     background: #172638;
 }
 .st-key-grade_summary table tbody th { color: #d3e0ee; }
-.st-key-grade_summary table thead th:nth-child(2) { color: #79aaff; }
-.st-key-grade_summary table thead th:nth-child(3) { color: #63e5f6; }
-.st-key-grade_summary table thead th:nth-child(4) { color: #63e5ac; }
-.st-key-grade_summary table thead th:nth-child(5) { color: #ffd064; }
+.st-key-grade_summary table thead th:nth-child(n+2):nth-child(-n+3) { color: #79aaff; }
+.st-key-grade_summary table thead th:nth-child(n+4):nth-child(-n+5) { color: #63e5f6; }
+.st-key-grade_summary table thead th:nth-child(n+6):nth-child(-n+7) { color: #63e5ac; }
+.st-key-grade_summary table thead th:nth-child(n+8) { color: #ffd064; }
+.st-key-grade_summary table tbody tr:nth-child(1) > * { background: #10352e; color: #8af0bd; font-weight: 700; }
+.st-key-grade_summary table tbody tr:nth-child(2) > * { background: #172f4b; color: #a5caff; font-weight: 700; }
 .pareto-legend {
     display: flex;
     justify-content: flex-end;
@@ -280,9 +282,12 @@ def grade_summary(history, periods):
     for label, start, end in periods:
         records = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
         grades = records["Grade"].value_counts()
-        summary[label] = [
-            f"{grades.get(grade, 0) / len(records):.2%}" if len(records) else "—"
-            for grade in GRADES
+        quantities = [int(grades.get(grade, 0)) for grade in GRADES]
+        heading = label.split(" · ", 1)[0]
+        summary[f"{heading} Qty"] = [f"{count:,}" for count in quantities]
+        summary[f"{heading} %"] = [
+            f"{count / len(records):.2%}" if len(records) else "—"
+            for count in quantities
         ]
     return pd.DataFrame(summary, index=pd.Index(GRADES, name="Grade"))
 
@@ -343,30 +348,28 @@ def show_module_heatmap(records, defect):
         f"{mapped:,} modules mapped"
         + (f" · {unmapped:,} without a usable cell location" if unmapped else "")
     )
-    grid["Label"] = [
-        f"{cell}  ·  {count:,}" if count else cell
-        for cell, count in zip(grid["Location"], grid["Modules"])
-    ]
     maximum = max(1, int(grid["Modules"].max()))
     base = alt.Chart(grid).encode(
-        x=alt.X("Column:O", sort="ascending", axis=None, scale=alt.Scale(paddingInner=.1)),
-        y=alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.14)),
+        x=alt.X("Column:O", sort="ascending", axis=None, scale=alt.Scale(paddingInner=.055)),
+        y=alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08)),
         tooltip=["Location:N", "Modules:Q"],
     )
-    tiles = base.mark_rect(cornerRadius=3).encode(
+    tiles = base.mark_rect(cornerRadius=1).encode(
         color=alt.condition(
             "datum.Modules > 0",
             alt.Color("Modules:Q", scale=alt.Scale(
-                domain=[0, maximum], range=["#26447b", "#f6b83b", "#ff6944"],
+                domain=[0, maximum], range=["#48101c", "#ae293d", "#ffb2b9"],
             ), legend=None),
-            alt.value("#1b293d"),
+            alt.value("#27151d"),
         ),
     )
-    labels = base.mark_text(font="Inter", fontSize=10).encode(
-        text="Label:N",
-        color=alt.condition("datum.Modules > 0", alt.value("#090f19"), alt.value("#aabbd2")),
+    labels = base.mark_text(font="Inter", fontSize=8).encode(
+        text="Location:N",
+        color=alt.condition(
+            f"datum.Modules >= {maximum * .7}", alt.value("#2a0810"), alt.value("#f3c8ce")
+        ),
     )
-    chart = (tiles + labels).properties(height=108, background="transparent").configure_view(stroke=None)
+    chart = (tiles + labels).properties(height=96, background="transparent").configure_view(stroke=None)
     with st.container(key="pareto_heatmap_" + records["Grade"].iloc[0]):
         st.altair_chart(chart, use_container_width=True, theme=None)
 
@@ -387,9 +390,10 @@ def show_pareto(history, start, end, grade):
         st.info(message)
         return
 
+    gradient = ", ".join(BAR_PALETTE)
     legend.markdown(
         f'<div class="pareto-legend" aria-label="Chart legend">'
-        f'<span><i style="background:{BAR_COLOR}"></i>Defect count</span>'
+        f'<span><i style="background:linear-gradient(90deg,{gradient})"></i>Defect count</span>'
         f'<span>% of period</span>'
         f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
         f'</div>',
@@ -402,7 +406,10 @@ def show_pareto(history, start, end, grade):
         for name in counts["Defect"]
     ])
     maximum = float(counts["Count"].max())
-    counts = counts.assign(Rank=range(len(counts)), BarBase=-maximum * .29)
+    counts = counts.assign(
+        Rank=range(len(counts)), BarBase=-maximum * .29,
+        Accent=[BAR_PALETTE[i % len(BAR_PALETTE)] for i in range(len(counts))],
+    )
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=270 if dense else 0,
@@ -420,14 +427,15 @@ def show_pareto(history, start, end, grade):
     chart_key = f"defect_{grade}_{start}_{end}"
     active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=False)
-    bars = base.mark_bar(color=BAR_COLOR, cornerRadiusEnd=3, cursor="pointer").encode(
-        y=count_axis, y2="BarBase:Q", opacity=alt.condition(pick, alt.value(1), alt.value(.4)),
+    bars = base.mark_bar(cornerRadiusEnd=3, cursor="pointer").encode(
+        y=count_axis, y2="BarBase:Q", color=alt.Color("Accent:N", scale=None, legend=None),
+        opacity=alt.condition(pick, alt.value(1), alt.value(.7)),
     ).add_params(pick)
     value_labels = base.mark_text(
         dy=-8, color="#f8faff", font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
-        baseline="bottom", dy=-3, color="#ffffff", font="Inter",
+        baseline="bottom", dy=-3, color="#101722", font="Inter",
         fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(
         y=alt.Y("BarBase:Q", scale=count_scale, axis=None),
