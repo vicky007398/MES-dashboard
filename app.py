@@ -822,13 +822,12 @@ def show_pareto(records, period_total, start, end, grade):
         unsafe_allow_html=True,
     )
     dense = len(counts) > 12
-    longest_name = counts["Defect"].str.len().max()
     if len(counts) > 20:
-        label_angle = 270
+        label_angle = 275
     elif dense:
         label_angle = 285
     else:
-        label_angle = 305 if longest_name > 22 else 0
+        label_angle = 305
     labels = json.dumps([
         wrap(name, width=19 if dense else 22)
         for name in counts["Defect"]
