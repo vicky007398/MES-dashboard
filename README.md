@@ -33,7 +33,7 @@ Defect query records.
 ## Date tabs
 
 Periods use the current date in India. MTD covers the first of the month through
-today. Yesterday, Last week, and Last 15 days cover the preceding 1, 7, and 15
+today. Yesterday, Last week, and Last 2 weeks cover the preceding 1, 7, and 14
 completed calendar days. Grade percentages use all imported inspection records
 in the selected period as the denominator. The chart counts each inspection
 record with a named defect once and includes every calendar date in the period.

@@ -442,7 +442,13 @@ DASHBOARD_STYLE = """
     border-inline-start: 3px solid #91a8c7;
 }
 .st-key-grade_summary table thead th { border-top: 3px solid #91a8c7; }
-.st-key-grade_summary table tbody tr:last-child > * { border-bottom: 3px solid #91a8c7; }
+.st-key-grade_summary table tbody tr:last-child > * {
+    border-top: 2px solid #91a8c7;
+    border-bottom: 3px solid #91a8c7;
+    background: #e9f0fb;
+    color: #193c73;
+    font-weight: 700;
+}
 .st-key-grade_summary table thead th {
     color: #193c73;
     background: #e9f0fb;
@@ -483,6 +489,7 @@ DASHBOARD_STYLE = """
 @media (min-width: 701px) and (max-height: 690px) {
     [data-testid="stMainBlockContainer"] {
         --compact-scale: .83;
+        padding-bottom: .2rem;
         zoom: var(--compact-scale);
     }
     /* Vega measures the zoomed width. Restore its horizontal fill without adding height. */
@@ -652,14 +659,15 @@ def grade_summary(history, periods):
     for label, start, end in periods:
         records = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
         grades = records["Grade"].value_counts()
-        quantities = [int(grades.get(grade, 0)) for grade in GRADES]
+        total = len(records)
+        quantities = [int(grades.get(grade, 0)) for grade in GRADES] + [total]
         heading = label.split(" · ", 1)[0]
         summary[f"{heading} Qty"] = [f"{count:,}" for count in quantities]
         summary[f"{heading} %"] = [
-            f"{count / len(records):.2%}" if len(records) else "—"
+            f"{count / total:.2%}" if total else "—"
             for count in quantities
         ]
-    return pd.DataFrame(summary, index=pd.Index(GRADES, name="Grade"))
+    return pd.DataFrame(summary, index=pd.Index((*GRADES, "Total"), name="Grade"))
 
 
 def defect_pareto(records, period_total):
@@ -952,7 +960,7 @@ def main():
         ("MTD", today.replace(day=1), today),
         (f"Yesterday · {yesterday:%d %b}", yesterday, yesterday),
         ("Last week", today - timedelta(days=7), yesterday),
-        ("Last 15 days", today - timedelta(days=15), yesterday),
+        ("Last 2 weeks", today - timedelta(weeks=2), yesterday),
     ]
     with st.container(key="grade_summary"):
         st.table(grade_summary(history, periods))
