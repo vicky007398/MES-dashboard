@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 import re
 import sqlite3
+from textwrap import wrap
 
 import altair as alt
 import pandas as pd
@@ -87,7 +88,9 @@ DASHBOARD_STYLE = """
     background: #091729e8;
 }
 [class*="st-key-grade_controls_"] [data-testid="stButton"] button {
+    height: 4.6rem;
     min-height: 4.6rem;
+    border-radius: .8rem;
     color: #f8faff;
     background: #14283f;
     border: 1px solid #59708b;
@@ -97,6 +100,13 @@ DASHBOARD_STYLE = """
 [class*="st-key-grade_controls_"] [data-testid="stBaseButton-primary"] {
     background: #693a38;
     border-color: #ffc47e;
+}
+[class*="st-key-grade_controls_"] [data-testid="stButton"] button:disabled {
+    opacity: 1;
+    color: #f8faff;
+    background: #14283f;
+    border: 1px solid #59708b;
+    border-top: 2px solid #ff9b58;
 }
 [class*="st-key-grade_controls_"] [data-testid="stButton"] button p {
     font-size: clamp(1rem, 2vw, 1.55rem);
@@ -278,32 +288,37 @@ def show_pareto(history, start, end, grade):
         return
 
     st.caption(f"{counts['Count'].sum():,} defect mentions · percentages use all named defect mentions for {grade}.")
+    wrapped = [wrap(name, width=34) for name in counts["Defect"]]
+    counts = counts.assign(Rank=range(len(counts)))
+    labels = json.dumps(wrapped)
+    row_height = max(31, 14 * max(map(len, wrapped)) + 10)
     base = alt.Chart(counts).encode(
-        y=alt.Y("Defect:N", sort=counts["Defect"].tolist(), title=None,
-                axis=alt.Axis(labelLimit=260)),
+        y=alt.Y("Rank:O", sort="ascending", title=None,
+                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelLimit=290,
+                              labelLineHeight=14, labelPadding=10, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share:Q", format=".1%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
         ],
     )
     count_axis = alt.X("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.35]),
-                       axis=alt.Axis(tickMinStep=1))
+                       axis=alt.Axis(tickMinStep=1, tickCount=6))
     bars = base.mark_bar(color="#ff9c50", cornerRadiusEnd=4).encode(x=count_axis)
     labels = base.mark_text(align="left", dx=7, color="#f8faff", fontWeight="bold").encode(
         x=count_axis, text="Bar label:N"
     )
     cumulative = base.mark_line(color="#81d8ff", point=True).encode(
         x=alt.X("Cumulative share:Q", scale=alt.Scale(domain=[0, 1]),
-                axis=alt.Axis(orient="top", format=".0%", grid=False)),
+                axis=alt.Axis(orient="top", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
         order=alt.Order("Cumulative share:Q"),
     )
     chart = alt.layer(alt.layer(bars, labels), cumulative).resolve_scale(x="independent").properties(
-        height=max(240, 30 * len(counts)), background="transparent"
+        height=max(150, row_height * len(counts)), background="transparent"
     ).configure_axis(
         labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
     ).configure_view(stroke=None)
-    with st.container(**({"height": 410} if len(counts) > 10 else {}), border=False):
+    with st.container(**({"height": 440} if row_height * len(counts) > 380 else {}), border=False):
         st.altair_chart(chart, use_container_width=True, theme=None)
 
 
@@ -315,12 +330,10 @@ def show_period(history, start, end, period_key):
     with st.container(key=f"grade_controls_{period_key}"):
         for grade, column in zip(GRADES, st.columns(len(GRADES))):
             share = f"{grades.get(grade, 0) / total:.2%}" if total else "—"
-            if grade == "G1":
-                column.metric(f"{grade} %", share, border=True)
-                continue
             column.button(
                 f"{grade}  {share}", key=f"{period_key}_{grade}",
                 type="primary" if selected_grade == grade else "secondary",
+                disabled=grade == "G1",
                 use_container_width=True,
                 on_click=st.session_state.__setitem__,
                 args=(selection_key, None if selected_grade == grade else grade),
