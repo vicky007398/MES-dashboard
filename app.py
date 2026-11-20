@@ -28,24 +28,13 @@ DASHBOARD_STYLE = """
     font-weight: 100 900;
     font-display: swap;
 }
-@font-face {
-    font-family: "Playfair Display";
-    src: url("https://www.wealthlab.in/_next/static/media/eaead17c7dbfcd5d-s.p.woff2") format("woff2");
-    font-style: normal;
-    font-weight: 400 900;
-    font-display: swap;
-}
-[data-testid="stMainBlockContainer"] :is(p,button,label,table) {
+[data-testid="stMainBlockContainer"] :is(h1,h2,h3,p,button,label,table) {
     font-family: Inter, Arial, sans-serif;
-}
-[data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
-    font-family: "Playfair Display", Georgia, serif;
 }
 [data-testid="stAppViewContainer"] {
     color-scheme: dark;
-    background:
-        radial-gradient(ellipse at 100% 0%, #6b302d 0%, transparent 46%),
-        linear-gradient(145deg, #163252 0%, #08172b 49%, #050c18 100%);
+    background: #0b1220;
+    color: #e8effb;
     min-height: 100vh;
 }
 [data-testid="stHeader"] { background: transparent; }
@@ -65,53 +54,47 @@ DASHBOARD_STYLE = """
 }
 .st-key-dashboard_header h3 {
     font-size: clamp(.75rem, 1.15vw, 1rem);
-    color: #ffc47e;
-    letter-spacing: .055em;
+    color: #66e3a7;
+    letter-spacing: .02em;
 }
 .st-key-dashboard_header h1 { font-size: clamp(1.3rem, 2.2vw, 2rem); }
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
-    background: linear-gradient(105deg, #d6344e, #ff8f28);
-    color: #101521;
+    background: #245de8;
+    color: #ffffff;
     border: 0;
     font-weight: 700;
     white-space: nowrap;
 }
 [data-testid="stPopoverButton"]:is(:hover,:focus-visible),
 [data-testid="stFormSubmitButton"] button:is(:hover,:focus-visible) {
-    background: linear-gradient(105deg, #fb6071, #ffb252);
-    color: #101521;
+    background: #194ac5;
+    color: #ffffff;
 }
 [data-testid="stTabs"] [role="tablist"] {
     gap: clamp(.25rem, 1.4vw, 1.5rem);
     border-bottom: 1px solid #ffffff26;
 }
 [data-testid="stTabs"] [role="tab"] { color: #e1eaf7; padding-inline: .65rem; }
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #ffbe76; }
-[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: #ff953f; }
-[data-testid="stMetric"] {
-    background: linear-gradient(160deg, #172d49, #0c1a30);
-    border: 1px solid #59708b80;
-    border-top: 2px solid #ff9b58;
-    border-radius: .8rem;
-    padding: .8rem clamp(.5rem, 1.4vw, 1.4rem);
-    color: #f8faff;
-}
-[data-testid="stMetricLabel"] p { color: #d4e2f3; }
-[data-testid="stMetricValue"] { font-size: clamp(1.3rem, 2.7vw, 2.65rem); }
-[data-testid="stCaptionContainer"] p { color: #c9dbef; }
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #8aafff; }
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: #5387ff; }
+[data-testid="stCaptionContainer"] p { color: #a8b7ce; }
+[data-testid="stRadio"] label { color: #e1eaf7; }
+[data-testid="stRadio"] label:has(input:checked) p { color: #8aafff; font-weight: 650; }
+[data-testid="stRadio"] label:has(input:checked) > div:first-child { background: #3972f6; }
+.st-key-grade_summary table tbody tr:nth-child(even) { background: #121e33; }
 [class*="st-key-pareto_"] {
     overflow-x: auto;
     padding: .3rem clamp(.35rem, 1vw, .85rem);
-    border: 1px solid #526c8a77;
+    border: 1px solid #25344c;
     border-radius: .8rem;
-    background: #091729e8;
+    background: #101a2d;
 }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
     color: #f8faff;
-    background: #0c1b2e;
+    background: #101a2d;
 }
 .st-key-grade_summary table th,
 .st-key-grade_summary table td {
@@ -119,11 +102,11 @@ DASHBOARD_STYLE = """
     padding: .18rem clamp(.2rem, .8vw, .65rem);
     overflow-wrap: anywhere;
     text-align: center;
-    border-color: #526c8a77;
+    border-color: #25344c;
 }
 .st-key-grade_summary table thead th {
-    color: #ffc47e;
-    background: #172d49;
+    color: #b0c8ff;
+    background: #16233a;
 }
 .st-key-grade_summary table tbody th { color: #d3e0ee; }
 [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .5rem; }
@@ -310,16 +293,16 @@ def show_pareto(history, start, end, grade):
         f"Bar percentages use all {len(period_records):,} inspection records in this period. "
         f"The line shows cumulative share of {grade} defect mentions."
     )
-    wrapped = [
-        [f"Qty {count:,}", *wrap(name, width=15)]
-        for name, count in zip(counts["Defect"], counts["Count"])
-    ]
-    counts = counts.assign(Rank=range(len(counts)))
+    wrapped = [wrap(name, width=15) for name in counts["Defect"]]
+    counts = counts.assign(
+        Rank=range(len(counts)),
+        Quantity=counts["Count"].map(lambda count: f"Qty {count:,}"),
+    )
     labels = json.dumps(wrapped)
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
-                              labelLimit=95, labelOverlap=False, labelLineHeight=12, labelPadding=6, ticks=False)),
+                              labelLimit=95, labelOverlap=False, labelLineHeight=12, labelPadding=19, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share of period:Q", format=".2%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
@@ -327,16 +310,19 @@ def show_pareto(history, start, end, grade):
     )
     count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
                        axis=alt.Axis(tickMinStep=1, tickCount=5))
-    bars = base.mark_bar(color="#ff9c50", cornerRadiusEnd=4).encode(y=count_axis)
+    bars = base.mark_bar(color="#5387ff", cornerRadiusEnd=4).encode(y=count_axis)
     value_labels = base.mark_text(
         dy=-8, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
-    cumulative = base.mark_line(color="#81d8ff", point=True).encode(
+    quantities = base.mark_text(
+        baseline="top", dy=4, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
+    ).encode(y=alt.value("height"), text="Quantity:N")
+    cumulative = base.mark_line(color="#61e3a3", point=True).encode(
         y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
                 axis=alt.Axis(orient="right", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
         order=alt.Order("Rank:Q"),
     )
-    chart = alt.layer(alt.layer(bars, value_labels), cumulative).resolve_scale(y="independent").properties(
+    chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
         height=235, background="transparent"
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
