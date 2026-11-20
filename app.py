@@ -1,5 +1,5 @@
 from contextlib import closing
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -7,6 +7,7 @@ import json
 import re
 import sqlite3
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -112,136 +113,93 @@ def load_history():
     return frame
 
 
-def excel_export(frame):
-    output = BytesIO()
-    report = frame[COLUMNS].copy()
-    report["Time"] = pd.to_datetime(report["Time"])
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        report.to_excel(writer, sheet_name="Cleaned MES data", index=False)
-        sheet = writer.sheets["Cleaned MES data"]
-        sheet.freeze_panes = "A2"
-        sheet.auto_filter.ref = sheet.dimensions
-        for column, width in zip("ABCDEFG", [22, 23, 16, 10, 12, 30, 36]):
-            sheet.column_dimensions[column].width = width
-        for row in sheet.iter_rows(min_row=2):
-            for cell in row:
-                if cell.data_type == "f":
-                    cell.data_type = "s"
-    return output.getvalue()
+GRADES = ("G1", "GP", "G2", "G3", "G4")
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def period_summary(history, start, end):
+    days = pd.date_range(start, end).strftime("%Y-%m-%d")
+    records = history.loc[history["Date"].between(days[0], days[-1])]
+    totals = records.groupby("Date").size().reindex(days, fill_value=0)
+    defects = records.loc[records["Defect Reason"].str.contains(r"[^;\s]", regex=True)]
+    daily_defects = defects.groupby("Date").size().reindex(days, fill_value=0)
+    trend = pd.DataFrame({
+        "Date": pd.to_datetime(days).strftime("%d %b"),
+        "Defect records": daily_defects.where(totals.ne(0)).to_numpy(),
+        "Inspection records": totals.to_numpy(),
+    })
+    return records["Grade"].value_counts(), len(records), trend
+
+
+def show_period(history, start, end):
+    grades, total, trend = period_summary(history, start, end)
+    st.caption(f"{start:%d %b %Y} to {end:%d %b %Y} · {total:,} inspection records")
+    for grade, column in zip(GRADES, st.columns(len(GRADES))):
+        share = f"{grades.get(grade, 0) / total:.2%}" if total else "—"
+        column.metric(f"{grade} %", share, border=True)
+
+    st.subheader("Defect Trend")
+    if not total:
+        st.caption("No inspection records imported for this period.")
+
+    dates = trend["Date"].tolist()
+    maximum = max(1, int(trend["Defect records"].fillna(0).max()))
+    chart = alt.Chart(trend).mark_bar(color="#08776C", cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Date:O", sort=dates, scale=alt.Scale(domain=dates),
+                axis=alt.Axis(values=dates, labelAngle=-45, labelOverlap=False)),
+        y=alt.Y("Defect records:Q", scale=alt.Scale(domain=[0, maximum]),
+                axis=alt.Axis(tickMinStep=1)),
+        tooltip=["Date:O", "Defect records:Q", "Inspection records:Q"],
+    ).properties(height=245)
+    st.altair_chart(chart, use_container_width=True)
+    st.caption("One count per record with a named defect. Dates without imported records have no bar.")
 
 
 def main():
-    st.set_page_config(page_title="MES Defect Trends", layout="wide")
-    st.title("MES Defect Trends")
+    st.set_page_config(page_title="RPSG | Defect Analysis", layout="wide")
     initialize()
-    with st.form("import"):
-        files = st.file_uploader("Select Final Defect query Excel exports", type=["xlsx", "xls"], accept_multiple_files=True)
-        submitted = st.form_submit_button("Import into local database")
-    if submitted:
-        if not files:
-            st.info("Choose a Final Defect query Excel file to import.")
-        for file in files:
-            try:
-                rows, skipped = read_export(file)
-                added = save_rows(rows)
-            except Exception as error:
-                st.error(f"{file.name} · {error}")
-                continue
-            st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
+    brand, heading, actions = st.columns([1, 5, 1.5], vertical_alignment="center")
+    brand.subheader("RPSG")
+    heading.title("Defect Analysis")
+
+    with actions.popover("Upload Excel"):
+        with st.form("import"):
+            files = st.file_uploader(
+                "Final Defect query exports", type=["xlsx", "xls"], accept_multiple_files=True
+            )
+            submitted = st.form_submit_button("Import into local database")
+        if submitted and not files:
+            st.info("Choose an Excel file to import.")
+        if submitted:
+            for file in files:
+                try:
+                    rows, skipped = read_export(file)
+                    added = save_rows(rows)
+                except Exception as error:
+                    st.error(f"{file.name} · {error}")
+                    continue
+                st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
 
     history = load_history()
     if history.empty:
-        st.info("Import your first MES export to see the dashboard.")
+        st.info("Use Upload Excel to import your first MES export.")
         return
 
-    is_final = history["Stage"].eq(FINAL_STAGE)
-    if is_final.any() and not is_final.all():
-        source = st.radio("Export format", ["Final Defect query", "Module defect query"], horizontal=True)
-        history = history.loc[is_final if source == "Final Defect query" else ~is_final].copy()
-
+    final = history["Stage"].eq(FINAL_STAGE)
+    if final.any():
+        history = history.loc[final].copy()
     history["Date"] = history["Time"].str[:10]
-    history["Reasons"] = history["Defect Reason"].map(
-        lambda value: sorted({part.strip() for part in value.split(";") if part.strip()})
-    )
-    available_dates = sorted(history["Date"].unique(), reverse=True)
-    first = date.fromisoformat(available_dates[-1])
-    last = date.fromisoformat(available_dates[0])
-    with st.container():
-        st.subheader("Grade counts")
-        grade_summary = st.empty()
-
-    st.subheader("Date selection")
-    mode = st.radio("Date mode", ["Single day", "Date range"], horizontal=True)
-    if mode == "Single day":
-        start = end = date.fromisoformat(st.selectbox("Date", available_dates))
-    else:
-        left, right = st.columns(2)
-        start = left.date_input("From", first, min_value=first, max_value=last)
-        end = right.date_input("To", last, min_value=first, max_value=last)
-    if start > end:
-        st.warning("Choose a To date on or after the From date.")
-        return
-
-    window = history[history["Date"].between(start.isoformat(), end.isoformat())]
-    grade_counts = window["Grade"].value_counts().sort_index()
-    grade_summary.dataframe(
-        grade_counts.rename_axis("Grade").reset_index(name="Inspection records"),
-        hide_index=True,
-    )
-
-    matching = window
-    with st.expander("Stage, shift, and grade filters"):
-        for label, container in zip(("Stage", "Shift", "Grade"), st.columns(3)):
-            selected = container.multiselect(label, sorted(set(window[label]) - {""}))
-            if selected:
-                matching = matching[matching[label].isin(selected)]
-
-    records_with_defects = matching[matching["Reasons"].map(bool)]
-    left, middle, right = st.columns(3)
-    left.metric("Inspection records", f"{len(matching):,}")
-    middle.metric("Unique modules", f"{matching['Serial No'].nunique():,}")
-    right.metric("Records with defects", f"{len(records_with_defects):,}")
-
-    if start == end:
-        st.subheader("Hourly defect counts")
-        hours = pd.date_range(start, periods=24, freq="h").strftime("%H:%M")
-        hourly = records_with_defects.groupby(records_with_defects["Time"].str[11:13] + ":00").size()
-        trend = hourly.reindex(hours, fill_value=0).rename("Records with defects").rename_axis("Hour").reset_index()
-        if matching.empty:
-            st.info("No records were imported for this date.")
-        else:
-            st.bar_chart(trend, x="Hour", y="Records with defects")
-            st.dataframe(trend, hide_index=True)
-    else:
-        st.subheader("Daily defect counts")
-        days = pd.date_range(start, end).strftime("%Y-%m-%d")
-        counts = records_with_defects.groupby("Date").size()
-        source_days = set(window["Date"])
-        trend = pd.DataFrame({
-            "Date": pd.to_datetime(days),
-            "Records with defects": [int(counts.get(day, 0)) if day in source_days else None for day in days],
-        })
-        st.bar_chart(trend, x="Date", y="Records with defects")
-        st.caption("Days without imported records are left blank.")
-    st.caption("Each inspection record with a named defect counts once. Hours use MES Operating Time.")
-
-    st.subheader("Top defect reasons")
-    reasons = matching["Reasons"].explode().dropna()
-    if reasons.empty:
-        st.info("No defect reasons match the current filters.")
-    else:
-        top = reasons.value_counts().head(10).rename_axis("Defect reason").reset_index(name="Records")
-        st.dataframe(top, hide_index=True)
-
-    st.subheader("Matching records")
-    st.dataframe(matching[COLUMNS], hide_index=True)
-    if not matching.empty:
-        st.download_button(
-            "Download matching records as Excel",
-            data=excel_export(matching),
-            file_name=f"MES-cleaned-{start}-to-{end}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+    today = datetime.now(IST).date()
+    yesterday = today - timedelta(days=1)
+    periods = [
+        ("MTD", today.replace(day=1), today),
+        (f"Yesterday · {yesterday:%d %b}", yesterday, yesterday),
+        ("Last week", today - timedelta(days=7), yesterday),
+        ("Last 15 days", today - timedelta(days=15), yesterday),
+    ]
+    for tab, (_, start, end) in zip(st.tabs([period[0] for period in periods]), periods):
+        with tab:
+            show_period(history, start, end)
 
 
 if __name__ == "__main__":
