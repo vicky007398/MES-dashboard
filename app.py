@@ -80,38 +80,28 @@ DASHBOARD_STYLE = """
 [data-testid="stMetricLabel"] p { color: #d4e2f3; }
 [data-testid="stMetricValue"] { font-size: clamp(1.3rem, 2.7vw, 2.65rem); }
 [data-testid="stCaptionContainer"] p { color: #c9dbef; }
-.st-key-defect_chart_mtd, .st-key-defect_chart_yesterday,
-.st-key-defect_chart_week, .st-key-defect_chart_fifteen {
+[class*="st-key-defect_chart_"] {
     padding: .7rem clamp(.5rem, 1.5vw, 1.5rem);
     border: 1px solid #526c8a77;
     border-radius: .8rem;
     background: #091729e8;
 }
-[class*="st-key-grade_controls_"] [data-testid="stButton"] button {
-    height: 4.6rem;
-    min-height: 4.6rem;
-    border-radius: .8rem;
+.st-key-grade_summary table {
+    width: 100%;
     color: #f8faff;
-    background: #14283f;
-    border: 1px solid #59708b;
-    border-top: 2px solid #ff9b58;
+    background: #0c1b2e;
 }
-[class*="st-key-grade_controls_"] [data-testid="stButton"] button:is(:hover,:focus-visible),
-[class*="st-key-grade_controls_"] [data-testid="stBaseButton-primary"] {
-    background: #693a38;
-    border-color: #ffc47e;
+.st-key-grade_summary table th,
+.st-key-grade_summary table td {
+    padding: .35rem .85rem;
+    text-align: center;
+    border-color: #526c8a77;
 }
-[class*="st-key-grade_controls_"] [data-testid="stButton"] button:disabled {
-    opacity: 1;
-    color: #f8faff;
-    background: #14283f;
-    border: 1px solid #59708b;
-    border-top: 2px solid #ff9b58;
+.st-key-grade_summary table thead th {
+    color: #ffc47e;
+    background: #172d49;
 }
-[class*="st-key-grade_controls_"] [data-testid="stButton"] button p {
-    font-size: clamp(1rem, 2vw, 1.55rem);
-    font-weight: 700;
-}
+.st-key-grade_summary table tbody th { color: #d3e0ee; }
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
     [data-testid="stTabs"] [role="tab"] { padding-inline: .4rem; }
@@ -240,18 +230,30 @@ GRADES = ("G1", "GP", "G2", "G3", "G4")
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
-def period_summary(history, start, end):
+def grade_summary(history, periods):
+    summary = {}
+    for label, start, end in periods:
+        records = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
+        grades = records["Grade"].value_counts()
+        summary[label] = [
+            f"{grades.get(grade, 0) / len(records):.2%}" if len(records) else "—"
+            for grade in GRADES
+        ]
+    return pd.DataFrame(summary, index=pd.Index(GRADES, name="Grade"))
+
+
+def daily_trend(history, start, end, grade):
     days = pd.date_range(start, end).strftime("%Y-%m-%d")
-    records = history.loc[history["Date"].between(days[0], days[-1])]
+    period = history.loc[history["Date"].between(days[0], days[-1])]
+    records = period.loc[period["Grade"].eq(grade)]
     totals = records.groupby("Date").size().reindex(days, fill_value=0)
     defects = records.loc[records["Defect Reason"].str.contains(r"[^;\s]", regex=True)]
     daily_defects = defects.groupby("Date").size().reindex(days, fill_value=0)
-    trend = pd.DataFrame({
+    return pd.DataFrame({
         "Date": pd.to_datetime(days).strftime("%d %b"),
-        "Defect records": daily_defects.where(totals.ne(0)).to_numpy(),
-        "Inspection records": totals.to_numpy(),
+        "Defect records": daily_defects.where(days.isin(period["Date"])).to_numpy(),
+        "Grade records": totals.to_numpy(),
     })
-    return records["Grade"].value_counts(), len(records), trend
 
 
 def defect_pareto(records):
@@ -322,30 +324,9 @@ def show_pareto(history, start, end, grade):
         st.altair_chart(chart, use_container_width=True, theme=None)
 
 
-def show_period(history, start, end, period_key):
-    grades, total, trend = period_summary(history, start, end)
-    st.caption(f"{start:%d %b %Y} to {end:%d %b %Y} · {total:,} inspection records")
-    selection_key = f"selected_grade_{period_key}"
-    selected_grade = st.session_state.get(selection_key)
-    with st.container(key=f"grade_controls_{period_key}"):
-        for grade, column in zip(GRADES, st.columns(len(GRADES))):
-            share = f"{grades.get(grade, 0) / total:.2%}" if total else "—"
-            column.button(
-                f"{grade}  {share}", key=f"{period_key}_{grade}",
-                type="primary" if selected_grade == grade else "secondary",
-                disabled=grade == "G1",
-                use_container_width=True,
-                on_click=st.session_state.__setitem__,
-                args=(selection_key, None if selected_grade == grade else grade),
-            )
-    if selected_grade:
-        show_pareto(history, start, end, selected_grade)
-        return
-
-    st.subheader("Defect Trend")
-    if not total:
-        st.caption("No inspection records imported for this period.")
-
+def show_daily_trend(history, start, end, grade):
+    st.subheader(f"{grade} Daily Defect Trend")
+    trend = daily_trend(history, start, end, grade)
     dates = trend["Date"].tolist()
     maximum = max(1, int(trend["Defect records"].fillna(0).max()))
     chart = alt.Chart(trend).mark_bar(
@@ -360,12 +341,12 @@ def show_period(history, start, end, period_key):
                 axis=alt.Axis(values=dates, labelAngle=-45, labelOverlap=False)),
         y=alt.Y("Defect records:Q", scale=alt.Scale(domain=[0, maximum]),
                 axis=alt.Axis(tickMinStep=1)),
-        tooltip=["Date:O", "Defect records:Q", "Inspection records:Q"],
-    ).properties(height=375, background="transparent").configure_axis(
+        tooltip=["Date:O", "Defect records:Q", "Grade records:Q"],
+    ).properties(height=285, background="transparent").configure_axis(
         labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
     ).configure_view(stroke=None)
-    with st.container(key=f"defect_chart_{period_key}"):
+    with st.container(key=f"defect_chart_{grade}"):
         st.altair_chart(chart, use_container_width=True, theme=None)
         st.caption("One count per record with a named defect. Dates without imported records have no bar.")
 
@@ -377,7 +358,7 @@ def main():
     with st.container(key="dashboard_header"):
         brand, heading, actions = st.columns([1.55, 5, 1.5], vertical_alignment="center")
         brand.subheader("RPSG Solvanta")
-        heading.title("Defect Analysis")
+        heading.title("MES Dashboard")
 
     with actions.popover("Upload Excel"):
         with st.form("import"):
@@ -414,10 +395,19 @@ def main():
         ("Last week", today - timedelta(days=7), yesterday),
         ("Last 15 days", today - timedelta(days=15), yesterday),
     ]
-    tabs = st.tabs([period[0] for period in periods])
-    for tab, (_, start, end), key in zip(tabs, periods, ("mtd", "yesterday", "week", "fifteen")):
+    with st.container(key="grade_summary"):
+        st.table(grade_summary(history, periods))
+
+    st.header("Defect Analysis")
+    period_label = st.radio("Period", [label for label, _, _ in periods], horizontal=True)
+    _, start, end = next(period for period in periods if period[0] == period_label)
+    for grade, tab in zip(GRADES[2:], st.tabs(GRADES[2:])):
         with tab:
-            show_period(history, start, end, key)
+            trend, pareto = st.columns([1, 1.35])
+            with trend:
+                show_daily_trend(history, start, end, grade)
+            with pareto:
+                show_pareto(history, start, end, grade)
 
 
 if __name__ == "__main__":
