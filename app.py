@@ -148,7 +148,7 @@ DASHBOARD_STYLE = """
     padding-block: .15rem;
 }
 @media (min-width: 701px) and (max-height: 690px) {
-    [data-testid="stMainBlockContainer"] { padding-top: 2rem; }
+    [data-testid="stMainBlockContainer"] { padding-top: 2rem; zoom: .9; }
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
     .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
 }
@@ -371,7 +371,7 @@ def show_module_heatmap(records, defect):
         text="Label:N",
         color=alt.condition("datum.Modules > 0", alt.value("#090f19"), alt.value("#aabbd2")),
     )
-    chart = (tiles + labels).properties(height=144, background="transparent").configure_view(stroke=None)
+    chart = (tiles + labels).properties(height=108, background="transparent").configure_view(stroke=None)
     with st.container(key="pareto_heatmap_" + records["Grade"].iloc[0]):
         st.altair_chart(chart, use_container_width=True, theme=None)
 
@@ -419,6 +419,8 @@ def show_pareto(history, start, end, grade):
     count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
                        axis=None)
     accent = alt.Color("Accent:N", scale=None, legend=None)
+    chart_key = f"defect_{grade}_{start}_{end}"
+    active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=False)
     bars = base.mark_bar(cornerRadiusEnd=4, cursor="pointer").encode(
         y=count_axis, color=accent, opacity=alt.condition(pick, alt.value(1), alt.value(.4)),
@@ -435,7 +437,7 @@ def show_pareto(history, start, end, grade):
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
-        height=215, background="transparent"
+        height=110 if active_selection else 215, background="transparent"
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", grid=False,
@@ -447,7 +449,7 @@ def show_pareto(history, start, end, grade):
     with st.container(key=f"pareto_{grade}"):
         event = st.altair_chart(
             chart, use_container_width=not wide, theme=None, on_select="rerun",
-            selection_mode="defect_pick", key=f"defect_{grade}_{start}_{end}",
+            selection_mode="defect_pick", key=chart_key,
         )
     selected = event.selection.get("defect_pick", [])
     if selected:
