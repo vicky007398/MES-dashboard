@@ -82,6 +82,21 @@ DASHBOARD_STYLE = """
     color: #ffffff;
 }
 [data-testid="stCaptionContainer"] p { color: #52657e; }
+.st-key-analysis_heading h2,
+.st-key-pareto_heading h3,
+.st-key-heatmap_heading h3 {
+    line-height: 1.25;
+    margin: 0;
+    padding: .18rem 0 .34rem;
+}
+.st-key-analysis_heading,
+.st-key-pareto_heading,
+.st-key-heatmap_heading {
+    padding-bottom: .22rem;
+}
+.st-key-analysis_controls, [class*="st-key-pareto_"]:not(.st-key-pareto_heading) {
+    margin-top: .65rem;
+}
 .st-key-analysis_controls [data-testid="stButtonGroup"] [role="radiogroup"] {
     gap: .4rem;
 }
@@ -160,7 +175,7 @@ DASHBOARD_STYLE = """
 [data-testid="stMainBlockContainer"] h2 { font-size: 1.35rem; }
 [data-testid="stMainBlockContainer"] h3 { font-size: 1.05rem; }
 @media (min-width: 701px) and (max-height: 690px) {
-    [data-testid="stMainBlockContainer"] { padding-top: .45rem; zoom: .9; }
+    [data-testid="stMainBlockContainer"] { padding-top: .45rem; zoom: .83; }
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
     .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
 }
@@ -366,8 +381,9 @@ def module_heatmap(records, defect):
 
 
 def show_module_heatmap(records, defect):
-    title, legend = st.columns([1.5, 1], vertical_alignment="center")
-    title.subheader(f"Module Heat Map · {defect}")
+    with st.container(key="heatmap_heading"):
+        title, legend = st.columns([1.5, 1], vertical_alignment="center")
+        title.subheader(f"Module Heat Map · {defect}" if defect else "Module Heat Map")
     swatches = "".join(
         f'<span><i class="heat-swatch" style="background:{color}"></i>{label}</span>'
         for label, color in HEAT_BANDS
@@ -376,7 +392,7 @@ def show_module_heatmap(records, defect):
         f'<div class="pareto-legend" aria-label="Heat map legend">Modules per cell {swatches}</div>',
         unsafe_allow_html=True,
     )
-    grid = module_heatmap(records, defect)
+    grid = module_heatmap(records if defect else records.iloc[:0], defect)
     grid["Display column"] = grid["Column"] + grid["Column"].ge(12).astype(int)
     grid["Label"] = [
         f"{cell} · {count:,}" if count else cell
@@ -406,19 +422,18 @@ def show_module_heatmap(records, defect):
         height=115, background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_view(stroke=None)
-    with st.container(key="pareto_heatmap_" + records["Grade"].iloc[0]):
+    with st.container(key="pareto_heatmap"):
         st.altair_chart(chart, use_container_width=True, theme=None)
 
 
-def show_pareto(history, start, end, grade):
-    title, legend = st.columns([1, 2], vertical_alignment="center")
-    title.subheader(f"{grade} Defect Pareto")
-    period_records = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
-    records = period_records.loc[period_records["Grade"].eq(grade)]
+def show_pareto(records, period_total, start, end, grade):
+    with st.container(key="pareto_heading"):
+        title, legend = st.columns([1, 2], vertical_alignment="center")
+        title.subheader(f"{grade} Defect Pareto")
     if records.empty:
         st.info(f"No {grade} records were imported for this period.")
         return
-    counts = defect_pareto(records, len(period_records))
+    counts = defect_pareto(records, period_total)
     if counts.empty:
         message = f"No defect reasons are available for {grade} in this period."
         if grade == "GP":
@@ -488,7 +503,7 @@ def show_pareto(history, start, end, grade):
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
-        height=149 if active_selection else 235, background="transparent",
+        height=149, background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#344760", titleColor="#18253b",
@@ -503,7 +518,7 @@ def show_pareto(history, start, end, grade):
     if selected:
         defect = selected[0].get("Defect")
         if defect in counts["Defect"].values:
-            show_module_heatmap(records, defect)
+            return defect
 
 
 def main():
@@ -536,6 +551,7 @@ def main():
     history = load_history()
     if history.empty:
         st.info("Use Upload Excel to import your first MES export.")
+        show_module_heatmap(history, None)
         return
 
     final = history["Stage"].eq(FINAL_STAGE)
@@ -553,7 +569,8 @@ def main():
     with st.container(key="grade_summary"):
         st.table(grade_summary(history, periods))
 
-    st.header("Defect Analysis")
+    with st.container(key="analysis_heading"):
+        st.header("Defect Analysis")
     period_labels = [label for label, _, _ in periods]
     with st.container(key="analysis_controls"):
         period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
@@ -566,7 +583,11 @@ def main():
                 "Grade", GRADES[2:], default="G2", label_visibility="collapsed"
             )
     _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
-    show_pareto(history, start, end, grade or "G2")
+    grade = grade or "G2"
+    period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
+    records = period.loc[period["Grade"].eq(grade)]
+    defect = show_pareto(records, len(period), start, end, grade)
+    show_module_heatmap(records, defect)
 
 
 if __name__ == "__main__":
