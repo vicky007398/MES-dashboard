@@ -822,6 +822,13 @@ def show_pareto(records, period_total, start, end, grade):
         unsafe_allow_html=True,
     )
     dense = len(counts) > 12
+    longest_name = counts["Defect"].str.len().max()
+    if len(counts) > 20:
+        label_angle = 270
+    elif dense:
+        label_angle = 285
+    else:
+        label_angle = 305 if longest_name > 22 else 0
     labels = json.dumps([
         wrap(name, width=19 if dense else 22)
         for name in counts["Defect"]
@@ -830,7 +837,7 @@ def show_pareto(records, period_total, start, end, grade):
     counts = counts.assign(Rank=range(len(counts)), BarBase=-maximum * .29)
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
-                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=270 if dense else 0,
+                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=label_angle,
                               labelLimit=0, labelOverlap=False, labelFontSize=8 if dense else 10,
                               labelLineHeight=8 if dense else 11, labelPadding=6, ticks=False)),
         tooltip=[
