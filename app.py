@@ -21,7 +21,7 @@ SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "D
 
 
 BAR_PALETTE = ("#3B82F6", "#22D3EE", "#16C784", "#A3E635", "#F0B90B", "#F97316")
-CUMULATIVE_COLOR = "#cbd2dc"
+CUMULATIVE_COLOR = "#334967"
 
 DASHBOARD_STYLE = """
 <style>
@@ -36,31 +36,29 @@ DASHBOARD_STYLE = """
     font-family: Inter, Arial, sans-serif;
 }
 [data-testid="stAppViewContainer"] {
-    color-scheme: dark;
-    background:
-        radial-gradient(ellipse at 90% 0%, #14283b 0%, transparent 43%),
-        linear-gradient(145deg, #040609, #0c1420);
-    color: #e8effb;
+    color-scheme: light;
+    background: #f3f6fb;
+    color: #18253b;
     min-height: 100vh;
 }
-[data-testid="stHeader"] { background: transparent; }
-[data-testid="stToolbar"] { right: .5rem; }
+[data-testid="stHeader"] { background: transparent; pointer-events: none; }
+[data-testid="stToolbar"] { right: .5rem; pointer-events: none; }
 [data-testid="stMainBlockContainer"] {
     max-width: none;
     padding: 2.25rem clamp(.75rem, 2vw, 2rem) .6rem;
 }
 [data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
-    color: #f8faff;
+    color: #18253b;
     padding-top: .15rem;
     padding-bottom: .15rem;
 }
 .st-key-dashboard_header {
     padding: .2rem 0 .35rem;
-    border-bottom: 1px solid #ffffff28;
+    border-bottom: 1px solid #cfdae9;
 }
 .st-key-dashboard_header h3 {
     font-size: clamp(.75rem, 1.15vw, 1rem);
-    color: #66e3a7;
+    color: #08734f;
     letter-spacing: .02em;
 }
 .st-key-dashboard_header h1 { font-size: clamp(1.3rem, 2.2vw, 2rem); }
@@ -79,27 +77,27 @@ DASHBOARD_STYLE = """
 }
 [data-testid="stTabs"] [role="tablist"] {
     gap: clamp(.25rem, 1.4vw, 1.5rem);
-    border-bottom: 1px solid #ffffff26;
+    border-bottom: 1px solid #cfdae9;
 }
-[data-testid="stTabs"] [role="tab"] { color: #e1eaf7; padding-inline: .65rem; }
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #8aafff; }
+[data-testid="stTabs"] [role="tab"] { color: #344760; padding-inline: .65rem; }
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #1c55b9; }
 [data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: #5387ff; }
-[data-testid="stCaptionContainer"] p { color: #a8b7ce; }
-[data-testid="stRadio"] label { color: #e1eaf7; }
-[data-testid="stRadio"] label:has(input:checked) p { color: #8aafff; font-weight: 650; }
+[data-testid="stCaptionContainer"] p { color: #52657e; }
+[data-testid="stRadio"] label { color: #344760; }
+[data-testid="stRadio"] label:has(input:checked) p { color: #1c55b9; font-weight: 650; }
 [data-testid="stRadio"] label:has(input:checked) > div:first-child { background: #3972f6; }
-.st-key-grade_summary table tbody tr:nth-child(even) { background: #121e33; }
+.st-key-grade_summary table tbody tr:nth-child(even) { background: #f5f8fd; }
 [class*="st-key-pareto_"] {
     padding: .3rem clamp(.35rem, 1vw, .85rem);
-    border: 1px solid #25344c;
+    border: 1px solid #d8e2f0;
     border-radius: .8rem;
-    background: #101924;
+    background: #ffffff;
 }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
-    color: #f8faff;
-    background: #101924;
+    color: #18253b;
+    background: #ffffff;
 }
 .st-key-grade_summary table th,
 .st-key-grade_summary table td {
@@ -107,19 +105,19 @@ DASHBOARD_STYLE = """
     padding: .18rem clamp(.2rem, .8vw, .65rem);
     overflow-wrap: anywhere;
     text-align: center;
-    border-color: #25344c;
+    border-color: #d8e2f0;
 }
 .st-key-grade_summary table thead th {
-    color: #b0c8ff;
-    background: #172638;
+    color: #193c73;
+    background: #e9f0fb;
 }
-.st-key-grade_summary table tbody th { color: #d3e0ee; }
-.st-key-grade_summary table thead th:nth-child(n+2):nth-child(-n+3) { color: #79aaff; }
-.st-key-grade_summary table thead th:nth-child(n+4):nth-child(-n+5) { color: #63e5f6; }
-.st-key-grade_summary table thead th:nth-child(n+6):nth-child(-n+7) { color: #63e5ac; }
-.st-key-grade_summary table thead th:nth-child(n+8) { color: #ffd064; }
-.st-key-grade_summary table tbody tr:nth-child(1) > * { background: #10352e; color: #8af0bd; font-weight: 700; }
-.st-key-grade_summary table tbody tr:nth-child(2) > * { background: #172f4b; color: #a5caff; font-weight: 700; }
+.st-key-grade_summary table tbody th { color: #283c58; }
+.st-key-grade_summary table thead th:nth-child(n+2):nth-child(-n+3) { color: #194fac; }
+.st-key-grade_summary table thead th:nth-child(n+4):nth-child(-n+5) { color: #006479; }
+.st-key-grade_summary table thead th:nth-child(n+6):nth-child(-n+7) { color: #08704c; }
+.st-key-grade_summary table thead th:nth-child(n+8) { color: #8a5107; }
+.st-key-grade_summary table tbody tr:nth-child(1) > * { background: #dcf7eb; color: #096245; font-weight: 700; }
+.st-key-grade_summary table tbody tr:nth-child(2) > * { background: #e0edff; color: #214e91; font-weight: 700; }
 .pareto-legend {
     display: flex;
     justify-content: flex-end;
@@ -127,7 +125,7 @@ DASHBOARD_STYLE = """
     flex-wrap: wrap;
     gap: .3rem .8rem;
     font: 600 .72rem Inter, Arial, sans-serif;
-    color: #dce6f4;
+    color: #435671;
 }
 .pareto-legend span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
 .pareto-legend i { display: inline-block; width: 1.15rem; height: .45rem; border-radius: .15rem; }
@@ -152,6 +150,22 @@ DASHBOARD_STYLE = """
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
     [data-testid="stTabs"] [role="tab"] { padding-inline: .4rem; }
+}
+
+[data-testid="stToolbar"] :is(button, a) { color: #344760; pointer-events: auto; }
+[data-testid="stPopoverBody"], [data-testid="stFileUploaderDropzone"] {
+    color-scheme: light;
+    background: #ffffff;
+    color: #18253b;
+    border-color: #d8e2f0;
+}
+[data-testid="stPopoverBody"] :is(label, small, p),
+[data-testid="stFileUploader"] :is(small, span) { color: #283c58; }
+[data-testid="stFormSubmitButton"] button p { color: #ffffff; }
+[data-testid="stFileUploaderDropzone"] button {
+    background: #e9f0fb;
+    color: #193c73;
+    border-color: #cfdae9;
 }
 </style>
 """
@@ -354,19 +368,20 @@ def show_module_heatmap(records, defect):
         y=alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08)),
         tooltip=["Location:N", "Modules:Q"],
     )
-    tiles = base.mark_rect(cornerRadius=1).encode(
+    tiles = base.mark_rect(cornerRadius=1, stroke="#e5cdd1", strokeWidth=.5).encode(
         color=alt.condition(
             "datum.Modules > 0",
             alt.Color("Modules:Q", scale=alt.Scale(
                 domain=[0, maximum], range=["#48101c", "#ae293d", "#ffb2b9"],
             ), legend=None),
-            alt.value("#27151d"),
+            alt.value("#ffffff"),
         ),
     )
     labels = base.mark_text(font="Inter", fontSize=8).encode(
         text="Location:N",
         color=alt.condition(
-            f"datum.Modules >= {maximum * .7}", alt.value("#2a0810"), alt.value("#f3c8ce")
+            f"datum.Modules == 0 || datum.Modules >= {maximum * .7}",
+            alt.value("#421621"), alt.value("#ffffff"),
         ),
     )
     chart = (tiles + labels).properties(height=96, background="transparent").configure_view(stroke=None)
@@ -432,7 +447,7 @@ def show_pareto(history, start, end, grade):
         opacity=alt.condition(pick, alt.value(1), alt.value(.7)),
     ).add_params(pick)
     value_labels = base.mark_text(
-        dy=-8, color="#f8faff", font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
+        dy=-8, color="#18253b", font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
         baseline="bottom", dy=-3, color="#101722", font="Inter",
@@ -449,8 +464,8 @@ def show_pareto(history, start, end, grade):
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
         height=101 if active_selection else 205, background="transparent"
     ).configure_axis(
-        labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
-        domainColor="#677c95", tickColor="#677c95", grid=False,
+        labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#344760", titleColor="#18253b",
+        domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
     ).configure_view(stroke=None)
     with st.container(key=f"pareto_{grade}"):
         event = st.altair_chart(
