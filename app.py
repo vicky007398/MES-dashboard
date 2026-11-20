@@ -832,7 +832,7 @@ def show_pareto(records, period_total, start, end, grade):
     dense = len(counts) > 12
     label_size = 9 if dense else 11
     # Fit wrapped names to the bar columns in the compact desktop layout.
-    wrap_width = max(4, min(24, int(1150 / (len(counts) * label_size * .6))))
+    wrap_width = max(4, min(24, int(1040 / (len(counts) * label_size * .6))))
     label_lines = []
     for name in counts["Defect"]:
         lines = wrap(name, width=wrap_width)
@@ -843,7 +843,7 @@ def show_pareto(records, period_total, start, end, grade):
     maximum = float(counts["Count"].max())
     counts = counts.assign(Rank=range(len(counts)), BarBase=-maximum * .29)
     base = alt.Chart(counts).encode(
-        x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
+        x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.43),
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
                               labelLimit=0, labelOverlap=False, labelFontSize=label_size,
                               labelLineHeight=label_size + 2, labelPadding=6, ticks=False)),
