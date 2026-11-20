@@ -21,6 +21,26 @@ SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "D
 
 DASHBOARD_STYLE = """
 <style>
+@font-face {
+    font-family: Inter;
+    src: url("https://www.wealthlab.in/_next/static/media/e4af272ccee01ff0-s.p.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Playfair Display";
+    src: url("https://www.wealthlab.in/_next/static/media/eaead17c7dbfcd5d-s.p.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 400 900;
+    font-display: swap;
+}
+[data-testid="stMainBlockContainer"] :is(p,button,label,table) {
+    font-family: Inter, Arial, sans-serif;
+}
+[data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
+    font-family: "Playfair Display", Georgia, serif;
+}
 [data-testid="stAppViewContainer"] {
     color-scheme: dark;
     background:
@@ -80,7 +100,8 @@ DASHBOARD_STYLE = """
 [data-testid="stMetricLabel"] p { color: #d4e2f3; }
 [data-testid="stMetricValue"] { font-size: clamp(1.3rem, 2.7vw, 2.65rem); }
 [data-testid="stCaptionContainer"] p { color: #c9dbef; }
-[class*="st-key-defect_chart_"] {
+[class*="st-key-pareto_"] {
+    overflow-x: auto;
     padding: .7rem clamp(.5rem, 1.5vw, 1.5rem);
     border: 1px solid #526c8a77;
     border-radius: .8rem;
@@ -242,20 +263,6 @@ def grade_summary(history, periods):
     return pd.DataFrame(summary, index=pd.Index(GRADES, name="Grade"))
 
 
-def daily_trend(history, start, end, grade):
-    days = pd.date_range(start, end).strftime("%Y-%m-%d")
-    period = history.loc[history["Date"].between(days[0], days[-1])]
-    records = period.loc[period["Grade"].eq(grade)]
-    totals = records.groupby("Date").size().reindex(days, fill_value=0)
-    defects = records.loc[records["Defect Reason"].str.contains(r"[^;\s]", regex=True)]
-    daily_defects = defects.groupby("Date").size().reindex(days, fill_value=0)
-    return pd.DataFrame({
-        "Date": pd.to_datetime(days).strftime("%d %b"),
-        "Defect records": daily_defects.where(days.isin(period["Date"])).to_numpy(),
-        "Grade records": totals.to_numpy(),
-    })
-
-
 def defect_pareto(records):
     counts = (
         records["Pareto Reason"]
@@ -290,65 +297,41 @@ def show_pareto(history, start, end, grade):
         return
 
     st.caption(f"{counts['Count'].sum():,} defect mentions · percentages use all named defect mentions for {grade}.")
-    wrapped = [wrap(name, width=34) for name in counts["Defect"]]
+    wrapped = [wrap(name, width=15) for name in counts["Defect"]]
     counts = counts.assign(Rank=range(len(counts)))
     labels = json.dumps(wrapped)
-    row_height = max(31, 14 * max(map(len, wrapped)) + 10)
     base = alt.Chart(counts).encode(
-        y=alt.Y("Rank:O", sort="ascending", title=None,
-                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelLimit=290,
-                              labelLineHeight=14, labelPadding=10, ticks=False)),
+        x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
+                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
+                              labelLimit=100, labelLineHeight=14, labelPadding=9, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share:Q", format=".1%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
         ],
     )
-    count_axis = alt.X("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.35]),
-                       axis=alt.Axis(tickMinStep=1, tickCount=6))
-    bars = base.mark_bar(color="#ff9c50", cornerRadiusEnd=4).encode(x=count_axis)
-    labels = base.mark_text(align="left", dx=7, color="#f8faff", fontWeight="bold").encode(
-        x=count_axis, text="Bar label:N"
-    )
+    count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
+                       axis=alt.Axis(tickMinStep=1, tickCount=5))
+    bars = base.mark_bar(color="#ff9c50", cornerRadiusEnd=4).encode(y=count_axis)
+    value_labels = base.mark_text(
+        dy=-9, color="#f8faff", font="Inter", fontSize=11, fontWeight="bold"
+    ).encode(y=count_axis, text="Bar label:N")
     cumulative = base.mark_line(color="#81d8ff", point=True).encode(
-        x=alt.X("Cumulative share:Q", scale=alt.Scale(domain=[0, 1]),
-                axis=alt.Axis(orient="top", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
-        order=alt.Order("Cumulative share:Q"),
+        y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
+                axis=alt.Axis(orient="right", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
+        order=alt.Order("Rank:Q"),
     )
-    chart = alt.layer(alt.layer(bars, labels), cumulative).resolve_scale(x="independent").properties(
-        height=max(150, row_height * len(counts)), background="transparent"
+    chart = alt.layer(alt.layer(bars, value_labels), cumulative).resolve_scale(y="independent").properties(
+        height=290, background="transparent"
     ).configure_axis(
-        labelColor="#d3e0ee", titleColor="#eaf2fb",
+        labelFont="Inter", titleFont="Inter", labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
     ).configure_view(stroke=None)
-    with st.container(**({"height": 440} if row_height * len(counts) > 380 else {}), border=False):
-        st.altair_chart(chart, use_container_width=True, theme=None)
-
-
-def show_daily_trend(history, start, end, grade):
-    st.subheader(f"{grade} Daily Defect Trend")
-    trend = daily_trend(history, start, end, grade)
-    dates = trend["Date"].tolist()
-    maximum = max(1, int(trend["Defect records"].fillna(0).max()))
-    chart = alt.Chart(trend).mark_bar(
-        color=alt.Gradient(
-            gradient="linear", x1=0, x2=0, y1=1, y2=0,
-            stops=[alt.GradientStop(offset=0, color="#e33a59"),
-                   alt.GradientStop(offset=1, color="#ffad43")],
-        ),
-        cornerRadiusTopLeft=4, cornerRadiusTopRight=4,
-    ).encode(
-        x=alt.X("Date:O", sort=dates, scale=alt.Scale(domain=dates),
-                axis=alt.Axis(values=dates, labelAngle=-45, labelOverlap=False)),
-        y=alt.Y("Defect records:Q", scale=alt.Scale(domain=[0, maximum]),
-                axis=alt.Axis(tickMinStep=1)),
-        tooltip=["Date:O", "Defect records:Q", "Grade records:Q"],
-    ).properties(height=285, background="transparent").configure_axis(
-        labelColor="#d3e0ee", titleColor="#eaf2fb",
-        domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
-    ).configure_view(stroke=None)
-    with st.container(key=f"defect_chart_{grade}"):
-        st.altair_chart(chart, use_container_width=True, theme=None)
-        st.caption("One count per record with a named defect. Dates without imported records have no bar.")
+    # Use a scrollable plot when the number of defects would crowd the labels.
+    wide = len(counts) > 9
+    if wide:
+        chart = chart.properties(width=95 * len(counts))
+    with st.container(key=f"pareto_{grade}"):
+        st.altair_chart(chart, use_container_width=not wide, theme=None)
 
 
 def main():
@@ -403,11 +386,7 @@ def main():
     _, start, end = next(period for period in periods if period[0] == period_label)
     for grade, tab in zip(GRADES[2:], st.tabs(GRADES[2:])):
         with tab:
-            trend, pareto = st.columns([1, 1.35])
-            with trend:
-                show_daily_trend(history, start, end, grade)
-            with pareto:
-                show_pareto(history, start, end, grade)
+            show_pareto(history, start, end, grade)
 
 
 if __name__ == "__main__":
