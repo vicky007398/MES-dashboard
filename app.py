@@ -290,17 +290,26 @@ LOGO_DATA_URI = (
     "RoveNt9wL0ocolIaGTHHyE7dY4W7e3m767OuRz3/SWk3vxS+63EH7c0nn+aK+9ogC5JAAAAAAAAAAAAAAAAAAAAAAAA="
 )
 
+CHART_FONT = "JetBrains Mono, monospace"
+
 DASHBOARD_STYLE = """
 <style>
 @font-face {
-    font-family: Inter;
-    src: url("https://www.wealthlab.in/_next/static/media/e4af272ccee01ff0-s.p.woff2") format("woff2");
+    font-family: "JetBrains Mono";
+    src: local("JetBrains Mono"),
+         url("https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2") format("woff2");
     font-style: normal;
-    font-weight: 100 900;
+    font-weight: 400 800;
     font-display: swap;
 }
-[data-testid="stMainBlockContainer"] :is(h1,h2,h3,p,button,label,table) {
-    font-family: Inter, Arial, sans-serif;
+[data-testid="stAppViewContainer"],
+:is([data-testid="stMainBlockContainer"], [role="dialog"], [data-testid="stPopoverBody"])
+:is(h1,h2,h3,p,button,label,table,input,small),
+.vg-tooltip {
+    font-family: "JetBrains Mono", monospace;
+}
+[data-testid="stDataFrame"] {
+    --gdg-font-family: "JetBrains Mono", monospace;
 }
 [data-testid="stAppViewContainer"] {
     color-scheme: light;
@@ -406,7 +415,7 @@ DASHBOARD_STYLE = """
     place-items: center;
     gap: .15rem;
     color: #52657e;
-    font: 500 .8rem Inter, Arial, sans-serif;
+    font: 500 .8rem "JetBrains Mono", monospace;
 }
 .pareto-zero strong { color: #18253b; font-size: 1.8rem; line-height: 1; }
 .st-key-pareto_heatmap .mark-text.role-mark,
@@ -451,7 +460,7 @@ DASHBOARD_STYLE = """
     align-items: center;
     flex-wrap: wrap;
     gap: .3rem .8rem;
-    font: 600 .72rem Inter, Arial, sans-serif;
+    font: 600 .72rem "JetBrains Mono", monospace;
     color: #435671;
 }
 .pareto-legend span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
@@ -750,7 +759,7 @@ def show_module_heatmap(records, defect, selection_context=None):
             legend=None,
         ),
     )
-    labels = base.mark_text(font="Inter", fontSize=9, fontWeight="bold").encode(
+    labels = base.mark_text(font=CHART_FONT, fontSize=9, fontWeight="bold").encode(
         text="Label:N",
         color=alt.condition("datum.Modules >= 5", alt.value("#ffffff"), alt.value("#421621")),
     )
@@ -761,7 +770,7 @@ def show_module_heatmap(records, defect, selection_context=None):
         ).add_params(pick)
     seam = pd.DataFrame({"Row": list("ABCDEF"), "Display column": 12, "Marker": "*"})
     stars = alt.Chart(seam).mark_text(
-        font="Inter", fontSize=12, fontWeight="bold", color="#52657e", dy=2,
+        font=CHART_FONT, fontSize=12, fontWeight="bold", color="#52657e", dy=2,
     ).encode(x=x, y=y, text="Marker:N")
     chart = (tiles + labels + stars).properties(
         height=132, padding=alt.Padding(top=1, right=1, bottom=1, left=1), background="transparent",
@@ -840,10 +849,10 @@ def show_pareto(records, period_total, start, end, grade):
         color=alt.condition(is_highlighted, alt.value(bar_color), alt.value(MUTED_BAR_COLOR)),
     ).add_params(pick)
     value_labels = base.mark_text(
-        dy=-8, color=PERIOD_SHARE_COLOR, font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
+        dy=-8, color=PERIOD_SHARE_COLOR, font=CHART_FONT, fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
-        baseline="bottom", dy=-3, font="Inter",
+        baseline="bottom", dy=-3, font=CHART_FONT,
         fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(
         y=alt.Y("BarBase:Q", scale=count_scale, axis=None),
@@ -864,7 +873,7 @@ def show_pareto(records, period_total, start, end, grade):
     )
     # A shared row keeps each cumulative value aligned with its marker and clear of bar labels.
     cumulative_labels = base.mark_text(
-        color=CUMULATIVE_COLOR, font="Inter", fontSize=9 if dense else 10, fontWeight="bold",
+        color=CUMULATIVE_COLOR, font=CHART_FONT, fontSize=9 if dense else 10, fontWeight="bold",
     ).encode(
         y=alt.value(9),
         text=alt.Text("Cumulative share:Q", format=".0%" if len(counts) > 32 else ".1%"),
@@ -876,7 +885,7 @@ def show_pareto(records, period_total, start, end, grade):
         height=236, padding=alt.Padding(top=2, right=2, bottom=2, left=2), background="transparent",
         autosize=alt.AutoSizeParams(type="fit", contains="padding"),
     ).configure_axis(
-        labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor=DEFECT_NAME_COLOR, titleColor="#18253b",
+        labelFont=CHART_FONT, titleFont=CHART_FONT, labelFontSize=10, titleFontSize=11, labelColor=DEFECT_NAME_COLOR, titleColor="#18253b",
         domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
     ).configure_view(stroke=None)
     with st.container(key=f"pareto_{grade}"):
