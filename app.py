@@ -871,8 +871,8 @@ def show_pareto(records, period_total, start, end, grade):
         alt.layer(bars, value_labels, quantities),
         alt.layer(cumulative, cumulative_labels),
     ).resolve_scale(y="independent").properties(
-        height=130, background="transparent",
-        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
+        height=236, padding=alt.Padding(top=2, right=2, bottom=2, left=2), background="transparent",
+        autosize=alt.AutoSizeParams(type="fit", contains="padding"),
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#344760", titleColor="#18253b",
         domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
