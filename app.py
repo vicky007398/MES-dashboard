@@ -20,8 +20,15 @@ FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect L
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
 
-BAR_PALETTE = ("#3B82F6", "#22D3EE", "#16C784", "#A3E635", "#F0B90B", "#F97316")
-CUMULATIVE_COLOR = "#334967"
+BAR_COLOR = "#2463d7"
+SELECTED_BAR_COLOR = "#a91435"
+MUTED_BAR_COLOR = "#b7c9e9"
+CUMULATIVE_COLOR = "#08745d"
+HEAT_BANDS = (
+    ("0", "#ffffff"), ("1", "#ffd6df"), ("2–4", "#f88ca3"),
+    ("5–9", "#ce3657"), ("10+", "#8e1534"),
+)
+
 
 DASHBOARD_STYLE = """
 <style>
@@ -138,6 +145,12 @@ DASHBOARD_STYLE = """
 .pareto-legend span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
 .pareto-legend i { display: inline-block; width: 1.15rem; height: .45rem; border-radius: .15rem; }
 .pareto-legend .legend-line { height: .15rem; }
+.pareto-legend .heat-swatch {
+    width: .8rem;
+    height: .65rem;
+    border: 1px solid #b88995;
+}
+.pareto-legend .chart-instruction { color: #194fac; font-weight: 700; }
 
 [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .5rem; }
 [data-testid="stMainBlockContainer"] :is(p,button,label,table) {
@@ -353,29 +366,37 @@ def module_heatmap(records, defect):
 
 
 def show_module_heatmap(records, defect):
-    st.subheader(f"Module Heat Map · {defect}")
+    title, legend = st.columns([1.5, 1], vertical_alignment="center")
+    title.subheader(f"Module Heat Map · {defect}")
+    swatches = "".join(
+        f'<span><i class="heat-swatch" style="background:{color}"></i>{label}</span>'
+        for label, color in HEAT_BANDS
+    )
+    legend.markdown(
+        f'<div class="pareto-legend" aria-label="Heat map legend">Modules per cell {swatches}</div>',
+        unsafe_allow_html=True,
+    )
     grid = module_heatmap(records, defect)
     grid["Display column"] = grid["Column"] + grid["Column"].ge(12).astype(int)
-    maximum = max(1, int(grid["Modules"].max()))
+    grid["Label"] = [
+        f"{cell} · {count:,}" if count else cell
+        for cell, count in zip(grid["Location"], grid["Modules"])
+    ]
     x = alt.X("Display column:O", sort="ascending", axis=None,
               scale=alt.Scale(domain=list(range(1, 24)), paddingInner=.055))
     y = alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08))
     base = alt.Chart(grid).encode(x=x, y=y, tooltip=["Location:N", "Modules:Q"])
-    tiles = base.mark_rect(cornerRadius=1, stroke="#e5cdd1", strokeWidth=.5).encode(
-        color=alt.condition(
-            "datum.Modules > 0",
-            alt.Color("Modules:Q", scale=alt.Scale(
-                domain=[0, maximum], range=["#48101c", "#ae293d", "#ffb2b9"],
-            ), legend=None),
-            alt.value("#ffffff"),
+    tiles = base.mark_rect(cornerRadius=2, stroke="#d5b8c0", strokeWidth=.65).encode(
+        color=alt.Color(
+            "Modules:Q",
+            scale=alt.Scale(type="threshold", domain=[1, 2, 5, 10],
+                            range=[color for _, color in HEAT_BANDS]),
+            legend=None,
         ),
     )
-    labels = base.mark_text(font="Inter", fontSize=8).encode(
-        text="Location:N",
-        color=alt.condition(
-            f"datum.Modules == 0 || datum.Modules >= {maximum * .7}",
-            alt.value("#421621"), alt.value("#ffffff"),
-        ),
+    labels = base.mark_text(font="Inter", fontSize=9, fontWeight="bold").encode(
+        text="Label:N",
+        color=alt.condition("datum.Modules >= 5", alt.value("#ffffff"), alt.value("#421621")),
     )
     seam = pd.DataFrame({"Row": list("ABCDEF"), "Display column": 12, "Marker": "*"})
     stars = alt.Chart(seam).mark_text(
@@ -405,11 +426,17 @@ def show_pareto(history, start, end, grade):
         st.info(message)
         return
 
-    gradient = ", ".join(BAR_PALETTE)
+    chart_key = f"defect_{grade}_{start}_{end}"
+    active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
+    selected_defect = active_selection[0].get("Defect") if active_selection else None
+    is_highlighted = f"datum.Defect === {json.dumps(selected_defect)}" if selected_defect else "true"
+    bar_color = SELECTED_BAR_COLOR if selected_defect else BAR_COLOR
+    bar_label = "Selected defect" if selected_defect else "Defect count"
     legend.markdown(
         f'<div class="pareto-legend" aria-label="Chart legend">'
-        f'<span><i style="background:linear-gradient(90deg,{gradient})"></i>Defect count</span>'
-        f'<span>% of period</span>'
+        f'<span><i style="background:{bar_color}"></i>{bar_label}</span>'
+        '<span class="chart-instruction">Click a bar to show locations</span>'
+        '<span>% of period</span>'
         f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
         f'</div>',
         unsafe_allow_html=True,
@@ -421,10 +448,7 @@ def show_pareto(history, start, end, grade):
         for name in counts["Defect"]
     ])
     maximum = float(counts["Count"].max())
-    counts = counts.assign(
-        Rank=range(len(counts)), BarBase=-maximum * .29,
-        Accent=[BAR_PALETTE[i % len(BAR_PALETTE)] for i in range(len(counts))],
-    )
+    counts = counts.assign(Rank=range(len(counts)), BarBase=-maximum * .29)
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=270 if dense else 0,
@@ -439,22 +463,24 @@ def show_pareto(history, start, end, grade):
     count_axis = alt.Y(
         "Count:Q", scale=count_scale, axis=None,
     )
-    chart_key = f"defect_{grade}_{start}_{end}"
-    active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=False)
     bars = base.mark_bar(cornerRadiusEnd=3, cursor="pointer").encode(
-        y=count_axis, y2="BarBase:Q", color=alt.Color("Accent:N", scale=None, legend=None),
-        opacity=alt.condition(pick, alt.value(1), alt.value(.7)),
+        y=count_axis, y2="BarBase:Q",
+        color=alt.condition(is_highlighted, alt.value(bar_color), alt.value(MUTED_BAR_COLOR)),
     ).add_params(pick)
     value_labels = base.mark_text(
         dy=-8, color="#18253b", font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
-        baseline="bottom", dy=-3, color="#101722", font="Inter",
+        baseline="bottom", dy=-3, font="Inter",
         fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(
         y=alt.Y("BarBase:Q", scale=count_scale, axis=None),
         text=alt.Text("Count:Q", format=",d"),
+        color=alt.condition(
+            is_highlighted,
+            alt.value("#ffffff"), alt.value("#233675"),
+        ),
     )
     cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
         y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
