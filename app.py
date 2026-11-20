@@ -24,7 +24,9 @@ SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "D
 BAR_COLOR = "#2463d7"
 SELECTED_BAR_COLOR = "#a91435"
 MUTED_BAR_COLOR = "#b7c9e9"
-CUMULATIVE_COLOR = "#4e276c"
+DEFECT_NAME_COLOR = "#006b64"
+PERIOD_SHARE_COLOR = "#164591"
+CUMULATIVE_COLOR = "#68339a"
 HEAT_BANDS = (
     ("0", "#ffffff"), ("1", "#ffd6df"), ("2–4", "#f88ca3"),
     ("5–9", "#ce3657"), ("10+", "#8e1534"),
@@ -805,7 +807,7 @@ def show_pareto(records, period_total, start, end, grade):
         f'<div class="pareto-legend" aria-label="Chart legend">'
         f'<span><i style="background:{bar_color}"></i>{bar_label}</span>'
         '<span class="chart-instruction">Click a bar for locations</span>'
-        '<span>% of period</span>'
+        f'<span style="color:{PERIOD_SHARE_COLOR}">% of period</span>'
         f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
         f'</div>',
         unsafe_allow_html=True,
@@ -838,7 +840,7 @@ def show_pareto(records, period_total, start, end, grade):
         color=alt.condition(is_highlighted, alt.value(bar_color), alt.value(MUTED_BAR_COLOR)),
     ).add_params(pick)
     value_labels = base.mark_text(
-        dy=-8, color="#18253b", font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
+        dy=-8, color=PERIOD_SHARE_COLOR, font="Inter", fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
         baseline="bottom", dy=-3, font="Inter",
@@ -874,7 +876,7 @@ def show_pareto(records, period_total, start, end, grade):
         height=236, padding=alt.Padding(top=2, right=2, bottom=2, left=2), background="transparent",
         autosize=alt.AutoSizeParams(type="fit", contains="padding"),
     ).configure_axis(
-        labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#344760", titleColor="#18253b",
+        labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor=DEFECT_NAME_COLOR, titleColor="#18253b",
         domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
     ).configure_view(stroke=None)
     with st.container(key=f"pareto_{grade}"):
