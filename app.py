@@ -41,11 +41,10 @@ DASHBOARD_STYLE = """
     color: #18253b;
     min-height: 100vh;
 }
-[data-testid="stHeader"] { background: transparent; pointer-events: none; }
-[data-testid="stToolbar"] { right: .5rem; pointer-events: none; }
+[data-testid="stHeader"] { display: none; }
 [data-testid="stMainBlockContainer"] {
     max-width: none;
-    padding: 2.25rem clamp(.75rem, 2vw, 2rem) .6rem;
+    padding: .55rem clamp(.75rem, 2vw, 2rem) .6rem;
 }
 [data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
     color: #18253b;
@@ -75,17 +74,26 @@ DASHBOARD_STYLE = """
     background: #194ac5;
     color: #ffffff;
 }
-[data-testid="stTabs"] [role="tablist"] {
-    gap: clamp(.25rem, 1.4vw, 1.5rem);
-    border-bottom: 1px solid #cfdae9;
-}
-[data-testid="stTabs"] [role="tab"] { color: #344760; padding-inline: .65rem; }
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #1c55b9; }
-[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: #5387ff; }
 [data-testid="stCaptionContainer"] p { color: #52657e; }
-[data-testid="stRadio"] label { color: #344760; }
-[data-testid="stRadio"] label:has(input:checked) p { color: #1c55b9; font-weight: 650; }
-[data-testid="stRadio"] label:has(input:checked) > div:first-child { background: #3972f6; }
+.st-key-analysis_controls [data-testid="stButtonGroup"] [role="radiogroup"] {
+    gap: .4rem;
+}
+.st-key-analysis_controls [data-testid="stButtonGroup"] button {
+    padding: .16rem .7rem;
+    min-height: 1.9rem;
+    border: 1px solid #c9d9ef;
+    border-radius: .4rem;
+    background: #ffffff;
+    color: #234266;
+}
+.st-key-analysis_controls [data-testid="stButtonGroup"] button[aria-checked="true"] {
+    background: #245cbd;
+    color: #ffffff;
+    border-color: #245cbd;
+}
+.st-key-grade_buttons [data-testid="stButtonGroup"] [role="radiogroup"] {
+    justify-content: flex-end;
+}
 .st-key-grade_summary table tbody tr:nth-child(even) { background: #f5f8fd; }
 [class*="st-key-pareto_"] {
     padding: .3rem clamp(.35rem, 1vw, .85rem);
@@ -138,21 +146,15 @@ DASHBOARD_STYLE = """
 }
 [data-testid="stMainBlockContainer"] h2 { font-size: 1.35rem; }
 [data-testid="stMainBlockContainer"] h3 { font-size: 1.05rem; }
-[data-testid="stMainBlockContainer"] [role="tab"] {
-    min-height: 2rem;
-    padding-block: .15rem;
-}
 @media (min-width: 701px) and (max-height: 690px) {
-    [data-testid="stMainBlockContainer"] { padding-top: 2rem; zoom: .9; }
+    [data-testid="stMainBlockContainer"] { padding-top: .45rem; zoom: .9; }
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
     .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
 }
 @media (max-width: 700px) {
-    [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
-    [data-testid="stTabs"] [role="tab"] { padding-inline: .4rem; }
+    [data-testid="stMainBlockContainer"] { padding-top: .55rem; }
 }
 
-[data-testid="stToolbar"] :is(button, a) { color: #344760; pointer-events: auto; }
 [data-testid="stPopoverBody"], [data-testid="stFileUploaderDropzone"] {
     color-scheme: light;
     background: #ffffff;
@@ -325,7 +327,6 @@ CELL_LOCATION = re.compile(r"(?<![A-Z0-9])([A-F])\s*(2[0-2]|1[0-9]|[1-9])(?![A-Z
 
 def module_heatmap(records, defect):
     modules_by_cell = defaultdict(set)
-    unmapped = set()
     for serial, reason, position in records[
         ["Serial No", "Pareto Reason", "Defect Position"]
     ].itertuples(index=False, name=None):
@@ -342,32 +343,24 @@ def module_heatmap(records, defect):
 
         cells = {(row, int(column)) for entry in selected
                  for row, column in CELL_LOCATION.findall(entry.upper())}
-        if not cells:
-            unmapped.add(serial)
         for cell in cells:
             modules_by_cell[cell].add(serial)
 
-    mapped = set().union(*modules_by_cell.values())
-    grid = pd.DataFrame([
+    return pd.DataFrame([
         (row, column, f"{row}{column}", len(modules_by_cell.get((row, column), ())))
         for row in "ABCDEF" for column in range(1, 23)
     ], columns=["Row", "Column", "Location", "Modules"])
-    return grid, len(mapped), len(unmapped - mapped)
 
 
 def show_module_heatmap(records, defect):
     st.subheader(f"Module Heat Map · {defect}")
-    grid, mapped, unmapped = module_heatmap(records, defect)
-    st.caption(
-        f"{mapped:,} modules mapped"
-        + (f" · {unmapped:,} without a usable cell location" if unmapped else "")
-    )
+    grid = module_heatmap(records, defect)
+    grid["Display column"] = grid["Column"] + grid["Column"].ge(12).astype(int)
     maximum = max(1, int(grid["Modules"].max()))
-    base = alt.Chart(grid).encode(
-        x=alt.X("Column:O", sort="ascending", axis=None, scale=alt.Scale(paddingInner=.055)),
-        y=alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08)),
-        tooltip=["Location:N", "Modules:Q"],
-    )
+    x = alt.X("Display column:O", sort="ascending", axis=None,
+              scale=alt.Scale(domain=list(range(1, 24)), paddingInner=.055))
+    y = alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08))
+    base = alt.Chart(grid).encode(x=x, y=y, tooltip=["Location:N", "Modules:Q"])
     tiles = base.mark_rect(cornerRadius=1, stroke="#e5cdd1", strokeWidth=.5).encode(
         color=alt.condition(
             "datum.Modules > 0",
@@ -384,7 +377,14 @@ def show_module_heatmap(records, defect):
             alt.value("#421621"), alt.value("#ffffff"),
         ),
     )
-    chart = (tiles + labels).properties(height=96, background="transparent").configure_view(stroke=None)
+    seam = pd.DataFrame({"Row": list("ABCDEF"), "Display column": 12, "Marker": "*"})
+    stars = alt.Chart(seam).mark_text(
+        font="Inter", fontSize=12, fontWeight="bold", color="#52657e", dy=2,
+    ).encode(x=x, y=y, text="Marker:N")
+    chart = (tiles + labels + stars).properties(
+        height=115, background="transparent",
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
+    ).configure_view(stroke=None)
     with st.container(key="pareto_heatmap_" + records["Grade"].iloc[0]):
         st.altair_chart(chart, use_container_width=True, theme=None)
 
@@ -462,7 +462,8 @@ def show_pareto(history, start, end, grade):
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
-        height=101 if active_selection else 205, background="transparent"
+        height=149 if active_selection else 235, background="transparent",
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#344760", titleColor="#18253b",
         domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
@@ -527,11 +528,19 @@ def main():
         st.table(grade_summary(history, periods))
 
     st.header("Defect Analysis")
-    period_label = st.radio("Period", [label for label, _, _ in periods], horizontal=True)
-    _, start, end = next(period for period in periods if period[0] == period_label)
-    for grade, tab in zip(GRADES[2:], st.tabs(GRADES[2:])):
-        with tab:
-            show_pareto(history, start, end, grade)
+    period_labels = [label for label, _, _ in periods]
+    with st.container(key="analysis_controls"):
+        period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
+        with period_buttons:
+            period_label = st.segmented_control(
+                "Period", period_labels, default="MTD", label_visibility="collapsed"
+            )
+        with grade_buttons, st.container(key="grade_buttons"):
+            grade = st.segmented_control(
+                "Grade", GRADES[2:], default="G2", label_visibility="collapsed"
+            )
+    _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
+    show_pareto(history, start, end, grade or "G2")
 
 
 if __name__ == "__main__":
