@@ -19,6 +19,9 @@ FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect L
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
 
+STRINGER_PALETTE = ("#3B82F6", "#22D3EE", "#16C784", "#A3E635", "#F0B90B", "#F97316")
+CUMULATIVE_COLOR = "#19D68B"
+
 DASHBOARD_STYLE = """
 <style>
 @font-face {
@@ -33,7 +36,9 @@ DASHBOARD_STYLE = """
 }
 [data-testid="stAppViewContainer"] {
     color-scheme: dark;
-    background: #0b1220;
+    background:
+        radial-gradient(ellipse at 90% 0%, #14283b 0%, transparent 43%),
+        linear-gradient(145deg, #040609, #0c1420);
     color: #e8effb;
     min-height: 100vh;
 }
@@ -60,7 +65,7 @@ DASHBOARD_STYLE = """
 .st-key-dashboard_header h1 { font-size: clamp(1.3rem, 2.2vw, 2rem); }
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
-    background: #245de8;
+    background: #245cbd;
     color: #ffffff;
     border: 0;
     font-weight: 700;
@@ -88,13 +93,13 @@ DASHBOARD_STYLE = """
     padding: .3rem clamp(.35rem, 1vw, .85rem);
     border: 1px solid #25344c;
     border-radius: .8rem;
-    background: #101a2d;
+    background: #101924;
 }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
     color: #f8faff;
-    background: #101a2d;
+    background: #101924;
 }
 .st-key-grade_summary table th,
 .st-key-grade_summary table td {
@@ -106,9 +111,26 @@ DASHBOARD_STYLE = """
 }
 .st-key-grade_summary table thead th {
     color: #b0c8ff;
-    background: #16233a;
+    background: #172638;
 }
 .st-key-grade_summary table tbody th { color: #d3e0ee; }
+.st-key-grade_summary table thead th:nth-child(2) { color: #79aaff; }
+.st-key-grade_summary table thead th:nth-child(3) { color: #63e5f6; }
+.st-key-grade_summary table thead th:nth-child(4) { color: #63e5ac; }
+.st-key-grade_summary table thead th:nth-child(5) { color: #ffd064; }
+.pareto-legend {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .3rem .8rem;
+    font: 600 .72rem Inter, Arial, sans-serif;
+    color: #dce6f4;
+}
+.pareto-legend span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
+.pareto-legend i { display: inline-block; width: 1.15rem; height: .45rem; border-radius: .15rem; }
+.pareto-legend .legend-line { height: .15rem; }
+
 [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .5rem; }
 [data-testid="stMainBlockContainer"] :is(p,button,label,table) {
     font-size: .8rem;
@@ -275,7 +297,8 @@ def defect_pareto(records, period_total):
 
 
 def show_pareto(history, start, end, grade):
-    st.subheader(f"{grade} Defect Pareto")
+    title, legend = st.columns([1, 2], vertical_alignment="center")
+    title.subheader(f"{grade} Defect Pareto")
     period_records = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
     records = period_records.loc[period_records["Grade"].eq(grade)]
     if records.empty:
@@ -289,14 +312,19 @@ def show_pareto(history, start, end, grade):
         st.info(message)
         return
 
-    st.caption(
-        f"Bar percentages use all {len(period_records):,} inspection records in this period. "
-        f"The line shows cumulative share of {grade} defect mentions."
+    gradient = ", ".join(STRINGER_PALETTE)
+    legend.markdown(
+        f'<div class="pareto-legend" aria-label="Chart legend">'
+        f'<span><i style="background:linear-gradient(90deg,{gradient})"></i>Defect count</span>'
+        f'<span>% of period</span>'
+        f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
+        f'</div>',
+        unsafe_allow_html=True,
     )
     wrapped = [wrap(name, width=15) for name in counts["Defect"]]
     counts = counts.assign(
         Rank=range(len(counts)),
-        Quantity=counts["Count"].map(lambda count: f"Qty {count:,}"),
+        Accent=[STRINGER_PALETTE[i % len(STRINGER_PALETTE)] for i in range(len(counts))],
     )
     labels = json.dumps(wrapped)
     base = alt.Chart(counts).encode(
@@ -310,14 +338,15 @@ def show_pareto(history, start, end, grade):
     )
     count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
                        axis=alt.Axis(tickMinStep=1, tickCount=5))
-    bars = base.mark_bar(color="#5387ff", cornerRadiusEnd=4).encode(y=count_axis)
+    accent = alt.Color("Accent:N", scale=None, legend=None)
+    bars = base.mark_bar(cornerRadiusEnd=4).encode(y=count_axis, color=accent)
     value_labels = base.mark_text(
         dy=-8, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
-        baseline="top", dy=4, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
-    ).encode(y=alt.value("height"), text="Quantity:N")
-    cumulative = base.mark_line(color="#61e3a3", point=True).encode(
+        baseline="top", dy=4, font="Inter", fontSize=10, fontWeight="bold"
+    ).encode(y=alt.value("height"), text=alt.Text("Count:Q", format=",d"), color=accent)
+    cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
         y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
                 axis=alt.Axis(orient="right", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
         order=alt.Order("Rank:Q"),
