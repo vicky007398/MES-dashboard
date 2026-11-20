@@ -419,7 +419,7 @@ def show_module_heatmap(records, defect):
         for label, color in HEAT_BANDS
     )
     legend.markdown(
-        f'<div class="pareto-legend" aria-label="Heat map legend">Modules per cell {swatches}</div>',
+        f'<div class="pareto-legend" aria-label="Heat map legend">{swatches}</div>',
         unsafe_allow_html=True,
     )
     grid = module_heatmap(records if defect else records.iloc[:0], defect)
@@ -429,8 +429,8 @@ def show_module_heatmap(records, defect):
         for cell, count in zip(grid["Location"], grid["Modules"])
     ]
     x = alt.X("Display column:O", sort="ascending", axis=None,
-              scale=alt.Scale(domain=list(range(1, 24)), paddingInner=.055))
-    y = alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08))
+              scale=alt.Scale(domain=list(range(1, 24)), paddingInner=.055, paddingOuter=0))
+    y = alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08, paddingOuter=0))
     base = alt.Chart(grid).encode(x=x, y=y, tooltip=["Location:N", "Modules:Q"])
     tiles = base.mark_rect(cornerRadius=2, stroke="#d5b8c0", strokeWidth=.65).encode(
         color=alt.Color(
@@ -449,7 +449,7 @@ def show_module_heatmap(records, defect):
         font="Inter", fontSize=12, fontWeight="bold", color="#52657e", dy=2,
     ).encode(x=x, y=y, text="Marker:N")
     chart = (tiles + labels + stars).properties(
-        height=115, background="transparent",
+        height=132, padding=alt.Padding(top=1, right=1, bottom=1, left=1), background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
     ).configure_view(stroke=None)
     with st.container(key="pareto_heatmap"):
