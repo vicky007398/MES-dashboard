@@ -18,6 +18,82 @@ FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect L
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
 
+DASHBOARD_STYLE = """
+<style>
+[data-testid="stAppViewContainer"] {
+    color-scheme: dark;
+    background:
+        radial-gradient(ellipse at 100% 0%, #6b302d 0%, transparent 46%),
+        linear-gradient(145deg, #163252 0%, #08172b 49%, #050c18 100%);
+    min-height: 100vh;
+}
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stToolbar"] { right: .5rem; }
+[data-testid="stMainBlockContainer"] {
+    max-width: none;
+    padding: 2.6rem clamp(.85rem, 2.5vw, 3rem) 1rem;
+}
+[data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
+    color: #f8faff;
+    padding-top: .15rem;
+    padding-bottom: .15rem;
+}
+.st-key-dashboard_header {
+    padding: .65rem 0 .85rem;
+    border-bottom: 1px solid #ffffff28;
+}
+.st-key-dashboard_header h3 {
+    font-size: clamp(.8rem, 1.5vw, 1.25rem);
+    color: #ffc47e;
+    letter-spacing: .055em;
+}
+.st-key-dashboard_header h1 { font-size: clamp(1.55rem, 3vw, 2.8rem); }
+[data-testid="stPopoverButton"],
+[data-testid="stFormSubmitButton"] button {
+    background: linear-gradient(105deg, #d6344e, #ff8f28);
+    color: #101521;
+    border: 0;
+    font-weight: 700;
+    white-space: nowrap;
+}
+[data-testid="stPopoverButton"]:is(:hover,:focus-visible),
+[data-testid="stFormSubmitButton"] button:is(:hover,:focus-visible) {
+    background: linear-gradient(105deg, #fb6071, #ffb252);
+    color: #101521;
+}
+[data-testid="stTabs"] [role="tablist"] {
+    gap: clamp(.25rem, 1.4vw, 1.5rem);
+    border-bottom: 1px solid #ffffff26;
+}
+[data-testid="stTabs"] [role="tab"] { color: #e1eaf7; padding-inline: .65rem; }
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #ffbe76; }
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: #ff953f; }
+[data-testid="stMetric"] {
+    background: linear-gradient(160deg, #172d49, #0c1a30);
+    border: 1px solid #59708b80;
+    border-top: 2px solid #ff9b58;
+    border-radius: .8rem;
+    padding: .8rem clamp(.5rem, 1.4vw, 1.4rem);
+    color: #f8faff;
+}
+[data-testid="stMetricLabel"] p { color: #d4e2f3; }
+[data-testid="stMetricValue"] { font-size: clamp(1.3rem, 2.7vw, 2.65rem); }
+[data-testid="stCaptionContainer"] p { color: #c9dbef; }
+.st-key-defect_chart_mtd, .st-key-defect_chart_yesterday,
+.st-key-defect_chart_week, .st-key-defect_chart_fifteen {
+    padding: .7rem clamp(.5rem, 1.5vw, 1.5rem);
+    border: 1px solid #526c8a77;
+    border-radius: .8rem;
+    background: #091729e8;
+}
+@media (max-width: 700px) {
+    [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
+    [data-testid="stTabs"] [role="tab"] { padding-inline: .4rem; }
+}
+</style>
+"""
+
+
 def initialize():
     DB.parent.mkdir(exist_ok=True)
     with closing(sqlite3.connect(DB)) as db, db:
@@ -131,7 +207,7 @@ def period_summary(history, start, end):
     return records["Grade"].value_counts(), len(records), trend
 
 
-def show_period(history, start, end):
+def show_period(history, start, end, period_key):
     grades, total, trend = period_summary(history, start, end)
     st.caption(f"{start:%d %b %Y} to {end:%d %b %Y} · {total:,} inspection records")
     for grade, column in zip(GRADES, st.columns(len(GRADES))):
@@ -144,23 +220,36 @@ def show_period(history, start, end):
 
     dates = trend["Date"].tolist()
     maximum = max(1, int(trend["Defect records"].fillna(0).max()))
-    chart = alt.Chart(trend).mark_bar(color="#08776C", cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+    chart = alt.Chart(trend).mark_bar(
+        color=alt.Gradient(
+            gradient="linear", x1=0, x2=0, y1=1, y2=0,
+            stops=[alt.GradientStop(offset=0, color="#e33a59"),
+                   alt.GradientStop(offset=1, color="#ffad43")],
+        ),
+        cornerRadiusTopLeft=4, cornerRadiusTopRight=4,
+    ).encode(
         x=alt.X("Date:O", sort=dates, scale=alt.Scale(domain=dates),
                 axis=alt.Axis(values=dates, labelAngle=-45, labelOverlap=False)),
         y=alt.Y("Defect records:Q", scale=alt.Scale(domain=[0, maximum]),
                 axis=alt.Axis(tickMinStep=1)),
         tooltip=["Date:O", "Defect records:Q", "Inspection records:Q"],
-    ).properties(height=245)
-    st.altair_chart(chart, use_container_width=True)
-    st.caption("One count per record with a named defect. Dates without imported records have no bar.")
+    ).properties(height=375, background="transparent").configure_axis(
+        labelColor="#d3e0ee", titleColor="#eaf2fb",
+        domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
+    ).configure_view(stroke=None)
+    with st.container(key=f"defect_chart_{period_key}"):
+        st.altair_chart(chart, use_container_width=True, theme=None)
+        st.caption("One count per record with a named defect. Dates without imported records have no bar.")
 
 
 def main():
     st.set_page_config(page_title="RPSG | Defect Analysis", layout="wide")
+    st.markdown(DASHBOARD_STYLE, unsafe_allow_html=True)
     initialize()
-    brand, heading, actions = st.columns([1, 5, 1.5], vertical_alignment="center")
-    brand.subheader("RPSG")
-    heading.title("Defect Analysis")
+    with st.container(key="dashboard_header"):
+        brand, heading, actions = st.columns([1.55, 5, 1.5], vertical_alignment="center")
+        brand.subheader("RPSG Solvanta")
+        heading.title("Defect Analysis")
 
     with actions.popover("Upload Excel"):
         with st.form("import"):
@@ -197,9 +286,10 @@ def main():
         ("Last week", today - timedelta(days=7), yesterday),
         ("Last 15 days", today - timedelta(days=15), yesterday),
     ]
-    for tab, (_, start, end) in zip(st.tabs([period[0] for period in periods]), periods):
+    tabs = st.tabs([period[0] for period in periods])
+    for tab, (_, start, end), key in zip(tabs, periods, ("mtd", "yesterday", "week", "fifteen")):
         with tab:
-            show_period(history, start, end)
+            show_period(history, start, end, key)
 
 
 if __name__ == "__main__":
