@@ -52,7 +52,7 @@ DASHBOARD_STYLE = """
 [data-testid="stToolbar"] { right: .5rem; }
 [data-testid="stMainBlockContainer"] {
     max-width: none;
-    padding: 2.6rem clamp(.85rem, 2.5vw, 3rem) 1rem;
+    padding: 2.25rem clamp(.75rem, 2vw, 2rem) .6rem;
 }
 [data-testid="stMainBlockContainer"] :is(h1,h2,h3) {
     color: #f8faff;
@@ -60,15 +60,15 @@ DASHBOARD_STYLE = """
     padding-bottom: .15rem;
 }
 .st-key-dashboard_header {
-    padding: .65rem 0 .85rem;
+    padding: .2rem 0 .35rem;
     border-bottom: 1px solid #ffffff28;
 }
 .st-key-dashboard_header h3 {
-    font-size: clamp(.8rem, 1.5vw, 1.25rem);
+    font-size: clamp(.75rem, 1.15vw, 1rem);
     color: #ffc47e;
     letter-spacing: .055em;
 }
-.st-key-dashboard_header h1 { font-size: clamp(1.55rem, 3vw, 2.8rem); }
+.st-key-dashboard_header h1 { font-size: clamp(1.3rem, 2.2vw, 2rem); }
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
     background: linear-gradient(105deg, #d6344e, #ff8f28);
@@ -102,7 +102,7 @@ DASHBOARD_STYLE = """
 [data-testid="stCaptionContainer"] p { color: #c9dbef; }
 [class*="st-key-pareto_"] {
     overflow-x: auto;
-    padding: .7rem clamp(.5rem, 1.5vw, 1.5rem);
+    padding: .3rem clamp(.35rem, 1vw, .85rem);
     border: 1px solid #526c8a77;
     border-radius: .8rem;
     background: #091729e8;
@@ -116,7 +116,7 @@ DASHBOARD_STYLE = """
 .st-key-grade_summary table th,
 .st-key-grade_summary table td {
     width: 20%;
-    padding: .35rem clamp(.2rem, 1vw, .85rem);
+    padding: .18rem clamp(.2rem, .8vw, .65rem);
     overflow-wrap: anywhere;
     text-align: center;
     border-color: #526c8a77;
@@ -126,6 +126,17 @@ DASHBOARD_STYLE = """
     background: #172d49;
 }
 .st-key-grade_summary table tbody th { color: #d3e0ee; }
+[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .5rem; }
+[data-testid="stMainBlockContainer"] :is(p,button,label,table) {
+    font-size: .8rem;
+    line-height: 1.3;
+}
+[data-testid="stMainBlockContainer"] h2 { font-size: 1.35rem; }
+[data-testid="stMainBlockContainer"] h3 { font-size: 1.05rem; }
+[data-testid="stMainBlockContainer"] [role="tab"] {
+    min-height: 2rem;
+    padding-block: .15rem;
+}
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
     [data-testid="stTabs"] [role="tab"] { padding-inline: .4rem; }
@@ -277,9 +288,6 @@ def defect_pareto(records, period_total):
     if total:
         counts["Share of period"] = counts["Count"] / period_total
         counts["Cumulative share"] = counts["Count"].cumsum() / total
-        counts["Bar label"] = [
-            f"{count:,} · {share:.2%}" for count, share in zip(counts["Count"], counts["Share of period"])
-        ]
     return counts
 
 
@@ -302,13 +310,16 @@ def show_pareto(history, start, end, grade):
         f"Bar percentages use all {len(period_records):,} inspection records in this period. "
         f"The line shows cumulative share of {grade} defect mentions."
     )
-    wrapped = [wrap(name, width=15) for name in counts["Defect"]]
+    wrapped = [
+        [f"Qty {count:,}", *wrap(name, width=15)]
+        for name, count in zip(counts["Defect"], counts["Count"])
+    ]
     counts = counts.assign(Rank=range(len(counts)))
     labels = json.dumps(wrapped)
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
                 axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
-                              labelLimit=100, labelLineHeight=14, labelPadding=9, ticks=False)),
+                              labelLimit=95, labelOverlap=False, labelLineHeight=12, labelPadding=6, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share of period:Q", format=".2%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
@@ -318,23 +329,23 @@ def show_pareto(history, start, end, grade):
                        axis=alt.Axis(tickMinStep=1, tickCount=5))
     bars = base.mark_bar(color="#ff9c50", cornerRadiusEnd=4).encode(y=count_axis)
     value_labels = base.mark_text(
-        dy=-9, color="#f8faff", font="Inter", fontSize=11, fontWeight="bold"
-    ).encode(y=count_axis, text="Bar label:N")
+        dy=-8, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
+    ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     cumulative = base.mark_line(color="#81d8ff", point=True).encode(
         y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
                 axis=alt.Axis(orient="right", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels), cumulative).resolve_scale(y="independent").properties(
-        height=290, background="transparent"
+        height=235, background="transparent"
     ).configure_axis(
-        labelFont="Inter", titleFont="Inter", labelColor="#d3e0ee", titleColor="#eaf2fb",
+        labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
     ).configure_view(stroke=None)
     # Use a scrollable plot when the number of defects would crowd the labels.
     wide = len(counts) > 9
     if wide:
-        chart = chart.properties(width=95 * len(counts))
+        chart = chart.properties(width=84 * len(counts))
     with st.container(key=f"pareto_{grade}"):
         st.altair_chart(chart, use_container_width=not wide, theme=None)
 
