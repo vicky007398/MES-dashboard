@@ -117,7 +117,7 @@ DASHBOARD_STYLE = """
     justify-content: flex-end;
 }
 .st-key-grade_summary table tbody tr:nth-child(even) { background: #f5f8fd; }
-[class*="st-key-pareto_"] {
+[class*="st-key-pareto_"]:not(.st-key-pareto_heading) {
     padding: .3rem clamp(.35rem, 1vw, .85rem);
     border: 1px solid #d8e2f0;
     border-radius: .8rem;
@@ -137,6 +137,14 @@ DASHBOARD_STYLE = """
     text-align: center;
     border-color: #d8e2f0;
 }
+.st-key-grade_summary table tr > :is(:first-child, :nth-child(2n + 3)) {
+    border-inline-end: 2px solid #91a8c7;
+}
+.st-key-grade_summary table tr > :first-child {
+    border-inline-start: 2px solid #91a8c7;
+}
+.st-key-grade_summary table thead th { border-top: 2px solid #91a8c7; }
+.st-key-grade_summary table tbody tr:last-child > * { border-bottom: 2px solid #91a8c7; }
 .st-key-grade_summary table thead th {
     color: #193c73;
     background: #e9f0fb;
@@ -175,7 +183,16 @@ DASHBOARD_STYLE = """
 [data-testid="stMainBlockContainer"] h2 { font-size: 1.35rem; }
 [data-testid="stMainBlockContainer"] h3 { font-size: 1.05rem; }
 @media (min-width: 701px) and (max-height: 690px) {
-    [data-testid="stMainBlockContainer"] { padding-top: .45rem; zoom: .83; }
+    [data-testid="stMainBlockContainer"] {
+        --compact-scale: .83;
+        padding-top: .45rem;
+        zoom: var(--compact-scale);
+    }
+    /* Vega measures the zoomed width. Restore its horizontal fill without adding height. */
+    [class*="st-key-pareto_"]:not(.st-key-pareto_heading) [data-testid="stVegaLiteChart"] :is(svg.marks, canvas) {
+        transform: scaleX(calc(1 / var(--compact-scale)));
+        transform-origin: left center;
+    }
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
     .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
 }
