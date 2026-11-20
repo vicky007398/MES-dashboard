@@ -409,6 +409,7 @@ DASHBOARD_STYLE = """
 .pareto-zero strong { color: #18253b; font-size: 1.8rem; line-height: 1; }
 .st-key-pareto_heatmap .mark-text.role-mark,
 [class*="st-key-pareto_G"] .mark-text.role-mark { pointer-events: none; }
+[class*="st-key-pareto_"] [data-testid="stElementToolbar"] { display: none; }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
@@ -803,7 +804,7 @@ def show_pareto(records, period_total, start, end, grade):
     legend.markdown(
         f'<div class="pareto-legend" aria-label="Chart legend">'
         f'<span><i style="background:{bar_color}"></i>{bar_label}</span>'
-        '<span class="chart-instruction">Click a bar to show locations</span>'
+        '<span class="chart-instruction">Click a bar for locations</span>'
         '<span>% of period</span>'
         f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
         f'</div>',
@@ -827,7 +828,7 @@ def show_pareto(records, period_total, start, end, grade):
         ],
     )
     # Reserve an equal base inside each bar so even small counts can hold a label.
-    count_scale = alt.Scale(domain=[-maximum * .29, maximum * 1.25], nice=False)
+    count_scale = alt.Scale(domain=[-maximum * .29, maximum * 1.38], nice=False)
     count_axis = alt.Y(
         "Count:Q", scale=count_scale, axis=None,
     )
@@ -851,7 +852,7 @@ def show_pareto(records, period_total, start, end, grade):
         ),
     )
     cumulative_y = alt.Y(
-        "Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12], nice=False), axis=None,
+        "Cumulative share:Q", scale=alt.Scale(domain=[0, 1.23], nice=False), axis=None,
     )
     cumulative = base.mark_line(
         color=CUMULATIVE_COLOR,
@@ -859,23 +860,16 @@ def show_pareto(records, period_total, start, end, grade):
     ).encode(
         y=cumulative_y, order=alt.Order("Rank:Q"),
     )
-    # Offset line labels the other way when they would overlap the bar's percentage.
-    near_bar_label = (
-        f"abs(datum['Cumulative share'] / 1.12 - "
-        f"(datum.Count + {maximum * .29}) / {maximum * 1.54}) < 0.10"
+    # A shared row keeps each cumulative value aligned with its marker and clear of bar labels.
+    cumulative_labels = base.mark_text(
+        color=CUMULATIVE_COLOR, font="Inter", fontSize=9 if dense else 10, fontWeight="bold",
+    ).encode(
+        y=alt.value(9),
+        text=alt.Text("Cumulative share:Q", format=".0%" if len(counts) > 32 else ".1%"),
     )
-    marker_labels = base.encode(y=cumulative_y, text=alt.Text("Cumulative share:Q", format=".1%"))
-    marker_text_style = {
-        "dy": alt.ExprRef(expr=f"{near_bar_label} ? 12 : -9"),
-        "font": "Inter", "fontSize": 8 if dense else 10, "fontWeight": "bold",
-    }
-    label_outline = marker_labels.mark_text(
-        fill="#ffffff", stroke="#ffffff", strokeWidth=3, aria=False, **marker_text_style
-    )
-    cumulative_labels = marker_labels.mark_text(color=CUMULATIVE_COLOR, **marker_text_style)
     chart = alt.layer(
         alt.layer(bars, value_labels, quantities),
-        alt.layer(cumulative, label_outline, cumulative_labels),
+        alt.layer(cumulative, cumulative_labels),
     ).resolve_scale(y="independent").properties(
         height=149, background="transparent",
         autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
