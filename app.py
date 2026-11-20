@@ -138,13 +138,13 @@ DASHBOARD_STYLE = """
     border-color: #d8e2f0;
 }
 .st-key-grade_summary table tr > :is(:first-child, :nth-child(2n + 3)) {
-    border-inline-end: 2px solid #91a8c7;
+    border-inline-end: 3px solid #91a8c7;
 }
 .st-key-grade_summary table tr > :first-child {
-    border-inline-start: 2px solid #91a8c7;
+    border-inline-start: 3px solid #91a8c7;
 }
-.st-key-grade_summary table thead th { border-top: 2px solid #91a8c7; }
-.st-key-grade_summary table tbody tr:last-child > * { border-bottom: 2px solid #91a8c7; }
+.st-key-grade_summary table thead th { border-top: 3px solid #91a8c7; }
+.st-key-grade_summary table tbody tr:last-child > * { border-bottom: 3px solid #91a8c7; }
 .st-key-grade_summary table thead th {
     color: #193c73;
     background: #e9f0fb;
