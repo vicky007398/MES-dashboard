@@ -830,30 +830,30 @@ def show_pareto(records, period_total, start, end, grade):
         unsafe_allow_html=True,
     )
     dense = len(counts) > 12
-    if len(counts) > 20:
-        label_angle = 275
-    elif dense:
-        label_angle = 285
-    else:
-        label_angle = 305
-    labels = json.dumps([
-        wrap(name, width=19 if dense else 22)
-        for name in counts["Defect"]
-    ])
+    label_size = 9 if dense else 11
+    # Fit wrapped names to the bar columns in the compact desktop layout.
+    wrap_width = max(4, min(24, int(1150 / (len(counts) * label_size * .6))))
+    label_lines = []
+    for name in counts["Defect"]:
+        lines = wrap(name, width=wrap_width)
+        # Keep unusually long names from consuming extra rows on short words.
+        chunks = [name[i:i + wrap_width] for i in range(0, len(name), wrap_width)]
+        label_lines.append(chunks if len(lines) > len(chunks) + 1 else lines)
+    labels = json.dumps(label_lines)
     maximum = float(counts["Count"].max())
     counts = counts.assign(Rank=range(len(counts)), BarBase=-maximum * .29)
     base = alt.Chart(counts).encode(
         x=alt.X("Rank:O", sort="ascending", title=None, scale=alt.Scale(paddingInner=.3),
-                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=label_angle,
-                              labelLimit=0, labelOverlap=False, labelFontSize=8 if dense else 10,
-                              labelLineHeight=8 if dense else 11, labelPadding=6, ticks=False)),
+                axis=alt.Axis(labelExpr=f"{labels}[datum.value]", labelAngle=0,
+                              labelLimit=0, labelOverlap=False, labelFontSize=label_size,
+                              labelLineHeight=label_size + 2, labelPadding=6, ticks=False)),
         tooltip=[
             "Defect:N", "Count:Q", alt.Tooltip("Share of period:Q", format=".2%"),
             alt.Tooltip("Cumulative share:Q", format=".1%"),
         ],
     )
     # Reserve an equal base inside each bar so even small counts can hold a label.
-    count_scale = alt.Scale(domain=[-maximum * .29, maximum * 1.38], nice=False)
+    count_scale = alt.Scale(domain=[-maximum * .29, maximum * (1.65 if max(map(len, label_lines)) > 6 else 1.38)], nice=False)
     count_axis = alt.Y(
         "Count:Q", scale=count_scale, axis=None,
     )
