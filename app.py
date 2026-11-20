@@ -123,6 +123,19 @@ DASHBOARD_STYLE = """
     border-radius: .8rem;
     background: #ffffff;
 }
+[class*="st-key-pareto_G"] {
+    min-height: 248px;
+    max-height: 248px;
+    justify-content: center;
+}
+.pareto-zero {
+    display: grid;
+    place-items: center;
+    gap: .15rem;
+    color: #52657e;
+    font: 500 .8rem Inter, Arial, sans-serif;
+}
+.pareto-zero strong { color: #18253b; font-size: 1.8rem; line-height: 1; }
 .st-key-grade_summary table {
     width: 100%;
     table-layout: fixed;
@@ -447,16 +460,14 @@ def show_pareto(records, period_total, start, end, grade):
     with st.container(key="pareto_heading"):
         title, legend = st.columns([1, 2], vertical_alignment="center")
         title.subheader(f"{grade} Defect Pareto")
-    if records.empty:
-        st.info(f"No {grade} records were imported for this period.")
-        return
     counts = defect_pareto(records, period_total)
     if counts.empty:
-        message = f"No defect reasons are available for {grade} in this period."
-        if grade == "GP":
-            message += " Reimport the original MES export to recover any GP reasons it contains."
-        st.info(message)
-        return
+        with st.container(key=f"pareto_{grade}"):
+            st.markdown(
+                '<div class="pareto-zero"><strong>0</strong><span>Defects</span></div>',
+                unsafe_allow_html=True,
+            )
+        return None
 
     chart_key = f"defect_{grade}_{start}_{end}"
     active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
@@ -597,7 +608,7 @@ def main():
             )
         with grade_buttons, st.container(key="grade_buttons"):
             grade = st.segmented_control(
-                "Grade", GRADES[2:], default="G2", label_visibility="collapsed"
+                "Grade", ("G1", "G2", "G3", "G4"), default="G2", label_visibility="collapsed"
             )
     _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
     grade = grade or "G2"
