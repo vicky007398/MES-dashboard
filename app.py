@@ -346,7 +346,7 @@ def show_pareto(history, start, end, grade):
         ],
     )
     count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
-                       axis=alt.Axis(tickMinStep=1, tickCount=5))
+                       axis=None)
     accent = alt.Color("Accent:N", scale=None, legend=None)
     bars = base.mark_bar(cornerRadiusEnd=4).encode(y=count_axis, color=accent)
     value_labels = base.mark_text(
@@ -357,14 +357,14 @@ def show_pareto(history, start, end, grade):
     ).encode(y=alt.value("height"), text=alt.Text("Count:Q", format=",d"), color=accent)
     cumulative = base.mark_line(color=CUMULATIVE_COLOR, point=True).encode(
         y=alt.Y("Cumulative share:Q", scale=alt.Scale(domain=[0, 1.12]),
-                axis=alt.Axis(orient="right", values=[0, .25, .5, .75, 1], format=".0%", grid=False)),
+                axis=None),
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
         height=215, background="transparent"
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
-        domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
+        domainColor="#677c95", tickColor="#677c95", grid=False,
     ).configure_view(stroke=None)
     # Use a scrollable plot when the number of defects would crowd the labels.
     wide = len(counts) > 9
