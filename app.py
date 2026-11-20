@@ -90,6 +90,10 @@ DASHBOARD_STYLE = """
 .st-key-grade_summary table tbody tr:nth-child(even) { background: #121e33; }
 [class*="st-key-pareto_"] {
     overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-color: #4d6488 #101924;
+    scrollbar-width: auto;
+    overscroll-behavior-x: contain;
     padding: .3rem clamp(.35rem, 1vw, .85rem);
     border: 1px solid #25344c;
     border-radius: .8rem;
@@ -141,6 +145,11 @@ DASHBOARD_STYLE = """
 [data-testid="stMainBlockContainer"] [role="tab"] {
     min-height: 2rem;
     padding-block: .15rem;
+}
+@media (min-width: 701px) and (max-height: 690px) {
+    [data-testid="stMainBlockContainer"] { padding-top: 2rem; }
+    [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
+    .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
 }
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] { padding-top: 3rem; }
@@ -321,7 +330,7 @@ def show_pareto(history, start, end, grade):
         f'</div>',
         unsafe_allow_html=True,
     )
-    wrapped = [wrap(name, width=15) for name in counts["Defect"]]
+    wrapped = [wrap(name, width=15, max_lines=3, placeholder="…") for name in counts["Defect"]]
     counts = counts.assign(
         Rank=range(len(counts)),
         Accent=[STRINGER_PALETTE[i % len(STRINGER_PALETTE)] for i in range(len(counts))],
@@ -352,7 +361,7 @@ def show_pareto(history, start, end, grade):
         order=alt.Order("Rank:Q"),
     )
     chart = alt.layer(alt.layer(bars, value_labels, quantities), cumulative).resolve_scale(y="independent").properties(
-        height=235, background="transparent"
+        height=215, background="transparent"
     ).configure_axis(
         labelFont="Inter", titleFont="Inter", labelFontSize=10, titleFontSize=11, labelColor="#d3e0ee", titleColor="#eaf2fb",
         domainColor="#677c95", tickColor="#677c95", gridColor="#263951",
