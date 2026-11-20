@@ -1,3 +1,4 @@
+from collections import defaultdict
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
@@ -305,6 +306,76 @@ def defect_pareto(records, period_total):
     return counts
 
 
+CELL_LOCATION = re.compile(r"(?<![A-Z0-9])([A-F])\s*(2[0-2]|1[0-9]|[1-9])(?![A-Z0-9])")
+
+
+def module_heatmap(records, defect):
+    modules_by_cell = defaultdict(set)
+    unmapped = set()
+    for serial, reason, position in records[
+        ["Serial No", "Pareto Reason", "Defect Position"]
+    ].itertuples(index=False, name=None):
+        reasons = [part.strip() for part in reason.split(";")]
+        if defect not in reasons:
+            continue
+        positions = position.split(";")
+        if {part for part in reasons if part} == {defect}:
+            selected = positions
+        elif len(reasons) == len(positions):
+            selected = [cell for name, cell in zip(reasons, positions) if name == defect]
+        else:
+            selected = []
+
+        cells = {(row, int(column)) for entry in selected
+                 for row, column in CELL_LOCATION.findall(entry.upper())}
+        if not cells:
+            unmapped.add(serial)
+        for cell in cells:
+            modules_by_cell[cell].add(serial)
+
+    mapped = set().union(*modules_by_cell.values())
+    grid = pd.DataFrame([
+        (row, column, f"{row}{column}", len(modules_by_cell.get((row, column), ())))
+        for row in "ABCDEF" for column in range(1, 23)
+    ], columns=["Row", "Column", "Location", "Modules"])
+    return grid, len(mapped), len(unmapped - mapped)
+
+
+def show_module_heatmap(records, defect):
+    st.subheader(f"Module Heat Map · {defect}")
+    grid, mapped, unmapped = module_heatmap(records, defect)
+    st.caption(
+        f"{mapped:,} modules mapped"
+        + (f" · {unmapped:,} without a usable cell location" if unmapped else "")
+    )
+    grid["Label"] = [
+        f"{cell}  ·  {count:,}" if count else cell
+        for cell, count in zip(grid["Location"], grid["Modules"])
+    ]
+    maximum = max(1, int(grid["Modules"].max()))
+    base = alt.Chart(grid).encode(
+        x=alt.X("Column:O", sort="ascending", axis=None, scale=alt.Scale(paddingInner=.1)),
+        y=alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.14)),
+        tooltip=["Location:N", "Modules:Q"],
+    )
+    tiles = base.mark_rect(cornerRadius=3).encode(
+        color=alt.condition(
+            "datum.Modules > 0",
+            alt.Color("Modules:Q", scale=alt.Scale(
+                domain=[0, maximum], range=["#26447b", "#f6b83b", "#ff6944"],
+            ), legend=None),
+            alt.value("#1b293d"),
+        ),
+    )
+    labels = base.mark_text(font="Inter", fontSize=10).encode(
+        text="Label:N",
+        color=alt.condition("datum.Modules > 0", alt.value("#090f19"), alt.value("#aabbd2")),
+    )
+    chart = (tiles + labels).properties(height=144, background="transparent").configure_view(stroke=None)
+    with st.container(key="pareto_heatmap_" + records["Grade"].iloc[0]):
+        st.altair_chart(chart, use_container_width=True, theme=None)
+
+
 def show_pareto(history, start, end, grade):
     title, legend = st.columns([1, 2], vertical_alignment="center")
     title.subheader(f"{grade} Defect Pareto")
@@ -348,7 +419,10 @@ def show_pareto(history, start, end, grade):
     count_axis = alt.Y("Count:Q", scale=alt.Scale(domain=[0, float(counts["Count"].max()) * 1.24]),
                        axis=None)
     accent = alt.Color("Accent:N", scale=None, legend=None)
-    bars = base.mark_bar(cornerRadiusEnd=4).encode(y=count_axis, color=accent)
+    pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=False)
+    bars = base.mark_bar(cornerRadiusEnd=4, cursor="pointer").encode(
+        y=count_axis, color=accent, opacity=alt.condition(pick, alt.value(1), alt.value(.4)),
+    ).add_params(pick)
     value_labels = base.mark_text(
         dy=-8, color="#f8faff", font="Inter", fontSize=10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
@@ -371,7 +445,15 @@ def show_pareto(history, start, end, grade):
     if wide:
         chart = chart.properties(width=84 * len(counts))
     with st.container(key=f"pareto_{grade}"):
-        st.altair_chart(chart, use_container_width=not wide, theme=None)
+        event = st.altair_chart(
+            chart, use_container_width=not wide, theme=None, on_select="rerun",
+            selection_mode="defect_pick", key=f"defect_{grade}_{start}_{end}",
+        )
+    selected = event.selection.get("defect_pick", [])
+    if selected:
+        defect = selected[0].get("Defect")
+        if defect in counts["Defect"].values:
+            show_module_heatmap(records, defect)
 
 
 def main():
