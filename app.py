@@ -520,6 +520,48 @@ DASHBOARD_STYLE = """
 """
 
 
+SCREEN_FIT_SCRIPT = """
+<script>
+(() => {
+    const dashboard = document.querySelector('[data-testid="stMainBlockContainer"]');
+    const viewport = document.querySelector('[data-testid="stMain"]');
+    if (!dashboard || !viewport || dashboard.dataset.fitConnected) return;
+    dashboard.dataset.fitConnected = "true";
+
+    const desktop = window.matchMedia("(min-width: 901px)");
+    let frame;
+    function fitDashboard() {
+        if (!dashboard.isConnected) return;
+        if (!desktop.matches || !dashboard.querySelector(".st-key-grade_summary")) {
+            dashboard.style.removeProperty("--dashboard-scale");
+            return;
+        }
+        const current = Number.parseFloat(getComputedStyle(dashboard).zoom) || 1;
+        const naturalHeight = dashboard.getBoundingClientRect().height / current;
+        if (naturalHeight <= 0) return;
+        const scale = Math.min((viewport.clientHeight - 4) / naturalHeight,
+                               viewport.clientWidth / 1000, 1.65);
+        const next = Math.max(.58, scale);
+        if (Math.abs(next - current) > .002) {
+            dashboard.style.setProperty("--dashboard-scale", next.toFixed(4));
+        }
+    }
+
+    function scheduleFit() {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(fitDashboard);
+    }
+
+    const sizeObserver = new ResizeObserver(scheduleFit);
+    sizeObserver.observe(dashboard);
+    sizeObserver.observe(viewport);
+    document.fonts.ready.then(scheduleFit);
+    scheduleFit();
+})();
+</script>
+"""
+
+
 def initialize():
     DB.parent.mkdir(exist_ok=True)
     with closing(sqlite3.connect(DB)) as db, db:
@@ -917,7 +959,10 @@ def show_pareto(records, period_total, start, end, grade):
 
 def main():
     st.set_page_config(page_title="RPSG | Defect Dashboard", layout="wide")
-    st.markdown(DASHBOARD_STYLE, unsafe_allow_html=True)
+    if "unsafe_allow_javascript" in signature(st.html).parameters:
+        st.html(DASHBOARD_STYLE + SCREEN_FIT_SCRIPT, unsafe_allow_javascript=True)
+    else:
+        st.markdown(DASHBOARD_STYLE, unsafe_allow_html=True)
     initialize()
     with st.container(key="dashboard_header"):
         brand, heading, actions = st.columns([1, 3, 1], vertical_alignment="center")
