@@ -400,6 +400,7 @@ DASHBOARD_STYLE = """
 }
 .st-key-grade_summary table tbody tr:nth-child(even) { background: #f5f8fd; }
 [class*="st-key-pareto_"]:not(.st-key-pareto_heading) {
+    overflow-x: clip;
     padding: .3rem clamp(.35rem, 1vw, .85rem);
     border: 1px solid #d8e2f0;
     border-radius: .8rem;
@@ -486,15 +487,15 @@ DASHBOARD_STYLE = """
 }
 [data-testid="stMainBlockContainer"] h2 { font-size: 1.35rem; }
 [data-testid="stMainBlockContainer"] h3 { font-size: 1.05rem; }
-@media (min-width: 701px) and (max-height: 690px) {
+@media (min-width: 901px) {
     [data-testid="stMainBlockContainer"] {
-        --compact-scale: .83;
+        --dashboard-scale: clamp(.68, min(100vh / 791px, 100vw / 1000px), 1.65);
         padding-bottom: .2rem;
-        zoom: var(--compact-scale);
+        zoom: var(--dashboard-scale);
     }
     /* Vega measures the zoomed width. Restore its horizontal fill without adding height. */
     [class*="st-key-pareto_"]:not(.st-key-pareto_heading) [data-testid="stVegaLiteChart"] :is(svg.marks, canvas) {
-        transform: scaleX(calc(1 / var(--compact-scale)));
+        transform: scaleX(calc(1 / var(--dashboard-scale)));
         transform-origin: left center;
     }
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .3rem; }
