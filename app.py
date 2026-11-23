@@ -759,7 +759,7 @@ def module_heatmap(records, defect):
     return grid, {f"{row}{column}": modules for (row, column), modules in modules_by_cell.items()}
 
 
-LAMINATOR_CODE = re.compile(r"L(\d+)_(CY\d+)_([UD])", re.IGNORECASE)
+LAMINATOR_CODE = re.compile(r"L(\d+)_CY(\d+)_([UD])", re.IGNORECASE)
 
 
 def decode_laminator(code):
@@ -767,7 +767,7 @@ def decode_laminator(code):
     if not match:
         return code.strip() or "Unavailable", "—", "—"
     machine, position, level = match.groups()
-    return f"Laminator {int(machine)}", {"U": "Upper", "D": "Lower"}[level.upper()], position.upper()
+    return f"Laminator {int(machine)}", {"U": "Upper", "D": "Lower"}[level.upper()], str(int(position))
 
 
 def laminator_hover(modules):
