@@ -300,7 +300,7 @@ DASHBOARD_STYLE = """
          url("https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2") format("woff2");
     font-style: normal;
     font-weight: 400 800;
-    font-display: swap;
+    font-display: optional;
 }
 [data-testid="stAppViewContainer"],
 :is([data-testid="stMainBlockContainer"], [role="dialog"], [data-testid="stPopoverBody"])
@@ -321,7 +321,8 @@ DASHBOARD_STYLE = """
 [data-testid="stHeader"] { display: none; }
 [data-testid="stMainBlockContainer"]:not([data-dashboard-ready]):not(:has(#dashboard-ready, [data-testid="stException"])),
 [data-testid="stMainBlockContainer"][data-dashboard-loading]:not([data-dashboard-ready]) {
-    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
 }
 [data-testid="stElementContainer"]:has(> [data-testid="stHtml"] #dashboard-ready) { display: none; }
 [data-testid="stMainBlockContainer"] {
@@ -560,43 +561,38 @@ SCREEN_FIT_SCRIPT = """
     }
 
     const sizeObserver = new ResizeObserver(scheduleFit);
-    sizeObserver.observe(dashboard);
-    sizeObserver.observe(viewport);
     function revealDashboard() {
-        cancelAnimationFrame(frame);
         fitDashboard();
         dashboard.dataset.dashboardReady = "true";
         delete dashboard.dataset.dashboardLoading;
+        sizeObserver.observe(dashboard);
+        sizeObserver.observe(viewport);
     }
 
-    // Wait for the full layout before measuring it for the first visible frame.
     function checkStartup() {
-        if (!dashboard.querySelector("#dashboard-ready")) {
-            if (dashboard.querySelector('[data-testid="stException"]')) {
-                startupObserver.disconnect();
-                revealDashboard();
-            }
+        const error = dashboard.querySelector('[data-testid="stException"]');
+        if (!error && !dashboard.querySelector("#dashboard-ready")) return;
+        startupObserver.disconnect();
+        if (error) {
+            revealDashboard();
             return;
         }
-        startupObserver.disconnect();
-        let chartFrame;
-        const deadline = setTimeout(() => {
-            cancelAnimationFrame(chartFrame);
-            revealDashboard();
-        }, 800);
-        const waitForCharts = () => {
-            if (dashboard.dataset.dashboardReady) return;
+
+        const deadline = performance.now() + 800;
+        let previousHeight;
+        function waitForLayout(now) {
+            fitDashboard();
+            const height = dashboard.getBoundingClientRect().height;
             const charts = [...dashboard.querySelectorAll('[data-testid="stVegaLiteChart"]')];
-            if (charts.some(chart => !chart.querySelector("svg.marks, canvas"))) {
-                chartFrame = requestAnimationFrame(waitForCharts);
+            const chartsReady = charts.every(chart => chart.querySelector("svg.marks, canvas"));
+            if ((chartsReady && Math.abs(height - previousHeight) < .5) || now >= deadline) {
+                revealDashboard();
                 return;
             }
-            clearTimeout(deadline);
-            revealDashboard();
-        };
-        document.fonts.ready.then(() => {
-            chartFrame = requestAnimationFrame(waitForCharts);
-        });
+            previousHeight = height;
+            requestAnimationFrame(waitForLayout);
+        }
+        requestAnimationFrame(waitForLayout);
     }
     const startupObserver = new MutationObserver(checkStartup);
     startupObserver.observe(dashboard, {childList: true, subtree: true});
@@ -722,7 +718,8 @@ def save_rows(rows):
         return added
 
 
-def load_history():
+@st.cache_data(show_spinner=False, max_entries=2)
+def load_history(database_version):
     with closing(sqlite3.connect(DB)) as db:
         frame = pd.read_sql_query(
             """SELECT i.serial, i.time, i.stage, i.shift, i.grade, i.position, i.reason,
@@ -1070,12 +1067,21 @@ def main():
                 try:
                     rows, skipped = read_export(file)
                     added = save_rows(rows)
+                    load_history.clear()
                 except Exception as error:
                     st.error(f"{file.name} · {error}")
                     continue
                 st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
 
-    history = load_history()
+    # Include the write-ahead log when another process uses WAL mode.
+    database_version = []
+    for path in (DB, DB.with_name(DB.name + "-wal")):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        database_version.append((path.name, stat.st_mtime_ns, stat.st_size))
+    history = load_history(tuple(database_version))
     if history.empty:
         st.info("Use Upload Excel to import your first MES export.")
         show_module_heatmap(history, None)
