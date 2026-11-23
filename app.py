@@ -903,6 +903,12 @@ def initialize():
                 password_hash BLOB NOT NULL
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dashboard_rework_batch (
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                barcodes TEXT NOT NULL
+            )
+        """)
         if db.execute("SELECT 1 FROM dashboard_accounts WHERE username = 'admin'").fetchone() is None:
             write_account(db, "admin", "admin", getenv("MES_ADMIN_PASSWORD") or "12345")
 
@@ -967,21 +973,21 @@ def show_account_menu(username, is_admin):
                         st.success("User created.")
                     else:
                         st.error("That username already exists.")
-        with st.form("change_dashboard_password", clear_on_submit=True):
-            current = st.text_input("Current password", type="password")
-            replacement = st.text_input("New password", type="password")
-            change = st.form_submit_button("Change password")
-        if change:
-            if not replacement or not verify_login(username, "admin" if is_admin else "user", current):
-                st.error("Enter the correct current password and a new password.")
-            else:
-                salt = token_bytes(16)
-                with closing(sqlite3.connect(DB)) as db, db:
-                    db.execute(
-                        "UPDATE dashboard_accounts SET salt = ?, password_hash = ? WHERE username = ?",
-                        (salt, password_digest(replacement, salt), username),
-                    )
-                st.success("Password changed.")
+            with st.form("change_dashboard_password", clear_on_submit=True):
+                current = st.text_input("Current password", type="password")
+                replacement = st.text_input("New password", type="password")
+                change = st.form_submit_button("Change password")
+            if change:
+                if not replacement or not verify_login(username, "admin", current):
+                    st.error("Enter the correct current password and a new password.")
+                else:
+                    salt = token_bytes(16)
+                    with closing(sqlite3.connect(DB)) as db, db:
+                        db.execute(
+                            "UPDATE dashboard_accounts SET salt = ?, password_hash = ? WHERE username = ?",
+                            (salt, password_digest(replacement, salt), username),
+                        )
+                    st.success("Password changed.")
         if st.button("Sign out"):
             st.session_state.clear()
             st.rerun()
@@ -1547,14 +1553,27 @@ def rework_defect_panel(history, result, grade):
     )
 
 
-def show_rework_analysis(history, file):
-    result = None
-    if file is not None:
-        try:
-            source = BytesIO(file.getvalue()) if hasattr(file, "getvalue") else file
-            result = rework_lookup(history, read_rework_barcodes(source))
-        except (ValueError, OSError) as error:
-            st.error(str(error))
+def publish_rework_batch(file):
+    if st.session_state.get("signed_in_account", (None, None))[1] != "admin":
+        return
+    source = BytesIO(file.getvalue()) if hasattr(file, "getvalue") else file
+    identity = ("upload", sha256(source.getbuffer()).hexdigest()) if isinstance(source, BytesIO) else ("shared", file)
+    if st.session_state.get("published_rework_source") == identity:
+        return
+    barcodes = read_rework_barcodes(source)
+    with closing(sqlite3.connect(DB)) as db, db:
+        db.execute(
+            """INSERT INTO dashboard_rework_batch (id, barcodes) VALUES (1, ?)
+               ON CONFLICT(id) DO UPDATE SET barcodes = excluded.barcodes""",
+            (json.dumps(barcodes),),
+        )
+    st.session_state["published_rework_source"] = identity
+
+
+def show_rework_analysis(history, is_admin):
+    with closing(sqlite3.connect(DB)) as db:
+        batch = db.execute("SELECT barcodes FROM dashboard_rework_batch WHERE id = 1").fetchone()
+    result = rework_lookup(history, json.loads(batch[0])) if batch else None
 
     counts = (
         result["Final EL"].value_counts().reindex(GRADES, fill_value=0)
@@ -1590,7 +1609,10 @@ def show_rework_analysis(history, file):
     )
 
     if result is None:
-        st.info("Use Upload Excel to load String Rework Module Tracking or upload a barcode workbook.")
+        if is_admin:
+            st.info("Use Upload Excel to load String Rework Module Tracking or upload a barcode workbook.")
+        else:
+            st.info("No rework batch is available yet.")
         return
     st.caption(
         f"{total:,} of {len(result):,} uploaded modules have a single final grade "
@@ -1624,9 +1646,14 @@ def main():
     is_admin = role == "admin"
     rework_page = st.session_state.get("dashboard_page") == "Rework Analysis"
     with st.container(key="dashboard_header"):
-        brand, heading, theme, refresh, account, actions, navigation = st.columns(
-            [2, 3.6, 1.4, 0.9, 1, 1.4, 0.5], vertical_alignment="center"
-        )
+        if is_admin:
+            brand, heading, theme, refresh, account, actions, navigation = st.columns(
+                [2, 3.6, 1.4, .9, 1, 1.4, .5], vertical_alignment="center"
+            )
+        else:
+            brand, heading, theme, refresh, account, navigation = st.columns(
+                [2, 3.6, 1.4, .9, 1, .5], vertical_alignment="center"
+            )
         brand.markdown(
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
             unsafe_allow_html=True,
@@ -1649,15 +1676,16 @@ def main():
     with account, st.container(key="account_action"):
         show_account_menu(username, is_admin)
 
-    with actions, st.container(key="upload_action"), st.popover("Upload Excel", disabled=not (is_admin or rework_page)):
-        if rework_page:
-            shared_file = None
-            if is_admin:
+    if is_admin:
+        with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
+            if rework_page:
+                shared_file = None
                 with st.form("shared_rework_workbook"):
                     location = st.text_input("Shared folder or Excel file path")
                     load_shared = st.form_submit_button("Load tracking workbook")
                 if load_shared:
                     st.session_state.pop("shared_rework_choice", None)
+                    st.session_state.pop("published_rework_source", None)
                     try:
                         st.session_state["shared_rework_files"] = find_rework_workbooks(location)
                     except (ValueError, OSError) as error:
@@ -1670,26 +1698,32 @@ def main():
                         "Select the tracking workbook", candidates, index=None,
                         format_func=lambda path: path.name, key="shared_rework_choice",
                     )
-            uploaded = st.file_uploader("Rework workbook", type=["xlsx", "xls", "xlsm"], key="rework_barcodes")
-            barcode_file = uploaded if uploaded is not None else shared_file
-        elif is_admin:
-            with st.form("import"):
-                files = st.file_uploader(
-                    "MES inspection exports", type=["xlsx", "xls"], accept_multiple_files=True
-                )
-                submitted = st.form_submit_button("Import into local database")
-            if submitted and not files:
-                st.info("Choose an Excel file to import.")
-            if submitted:
-                for file in files:
+                uploaded = st.file_uploader("Rework workbook", type=["xlsx", "xls", "xlsm"], key="rework_barcodes")
+                barcode_file = uploaded if uploaded is not None else shared_file
+                if barcode_file is not None:
                     try:
-                        rows, skipped = read_export(file)
-                        added = save_rows(rows)
-                        load_history.clear()
-                    except Exception as error:
-                        st.error(f"{file.name} · {error}")
-                        continue
-                    st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
+                        publish_rework_batch(barcode_file)
+                    except (ValueError, OSError) as error:
+                        st.error(str(error))
+            else:
+                with st.form("import"):
+                    files = st.file_uploader(
+                        "MES inspection exports", type=["xlsx", "xls"], accept_multiple_files=True
+                    )
+                    submitted = st.form_submit_button("Import into local database")
+                if submitted and not files:
+                    st.info("Choose an Excel file to import.")
+                if submitted:
+                    for file in files:
+                        try:
+                            rows, skipped = read_export(file)
+                            added = save_rows(rows)
+                            load_history.clear()
+                        except Exception as error:
+                            st.error(f"{file.name} · {error}")
+                            continue
+                        st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
+
 
     with navigation, st.container(key="page_arrow"):
         st.button(
@@ -1710,11 +1744,11 @@ def main():
         database_version.append((path.name, stat.st_mtime_ns, stat.st_size))
     history = load_history(tuple(database_version))
     if rework_page:
-        show_rework_analysis(history, barcode_file)
+        show_rework_analysis(history, is_admin)
         st.html('<span id="dashboard-ready" hidden></span>')
         return
     if history.empty:
-        st.info("Use Upload Excel to import your first MES export.")
+        st.info("Use Upload Excel to import your first MES export." if is_admin else "No inspection data is available yet.")
         show_module_heatmap(history, None)
         st.html('<span id="dashboard-ready" hidden></span>')
         return
