@@ -1135,15 +1135,18 @@ GRADES = ("G1", "GP", "G2", "G3", "G4")
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
-def dashboard_periods():
+def dashboard_periods(include_ytd=False):
     today = datetime.now(IST).date()
     yesterday = today - timedelta(days=1)
-    return [
+    periods = [
         ("MTD", today.replace(day=1), today),
         (f"Yesterday · {yesterday:%d %b}", yesterday, yesterday),
         ("Last week", today - timedelta(days=7), yesterday),
         ("Last 2 weeks", today - timedelta(weeks=2), yesterday),
     ]
+    if include_ytd:
+        periods.append(("YTD", today.replace(month=1, day=1), today))
+    return periods
 
 
 def grade_summary(history, periods):
@@ -1630,7 +1633,7 @@ def publish_rework_batch(file):
 def show_rework_analysis(history, is_admin):
     with closing(sqlite3.connect(DB)) as db:
         modules = db.execute("SELECT barcode, made_on FROM dashboard_rework_modules ORDER BY barcode").fetchall()
-    periods = dashboard_periods() + [("All dates", None, None)]
+    periods = dashboard_periods(include_ytd=True) + [("All dates", None, None)]
     default = 0 if any(made_on for _, made_on in modules) else len(periods) - 1
     selected = st.session_state.get("rework_period", default)
     with st.container(key="analysis_controls"):
