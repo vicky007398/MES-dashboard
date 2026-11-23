@@ -2,6 +2,7 @@ from collections import defaultdict
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
+from html import escape
 from inspect import signature
 from io import BytesIO
 from pathlib import Path
@@ -607,6 +608,30 @@ DASHBOARD_STYLE = """
 .rework-kpi-label { font-size: .8rem; font-weight: 700; }
 .rework-kpi-value { color: var(--accent); font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
 .rework-kpi-detail { font-size: .7rem; opacity: .8; }
+.rework-kpi[data-grade] { cursor: default; }
+.rework-defects {
+    display: none;
+    --accent: var(--day-accent);
+    padding: .65rem .8rem;
+    border: 1px solid var(--accent);
+    border-radius: .65rem;
+    background: #fff;
+    color: #18253b;
+}
+.rework-defects:hover { display: block; }
+.rework-kpis:has(.rework-kpi[data-grade]:hover) { margin-bottom: 0; }
+.rework-defect-row {
+    display: grid;
+    grid-template-columns: minmax(6rem, 25%) minmax(0, 1fr) 3rem;
+    align-items: center;
+    gap: .65rem;
+    padding: .25rem 0;
+    font: .8rem "JetBrains Mono", monospace;
+}
+.rework-defect-track { background: color-mix(in srgb, var(--accent) 13%, transparent); border-radius: .25rem; }
+.rework-defect-bar { height: .85rem; border-radius: .25rem; background: var(--accent); }
+.rework-defect-count { text-align: right; }
+
 .pareto-legend {
     display: flex;
     justify-content: flex-end;
@@ -666,6 +691,13 @@ DASHBOARD_STYLE = """
 """
 
 
+REWORK_HOVER_STYLE = "<style>" + "".join(
+    f'.rework-summary:has(.rework-kpi[data-grade="{grade}"]:is(:hover,:focus-visible)) '
+    f'.rework-defects[data-grade="{grade}"] {{ display: block; }}'
+    for grade in REWORK_COLORS if grade not in ("Modules Made", "NA")
+) + "</style>"
+
+
 NIGHT_STYLE = """
 <style>
 [data-testid="stAppViewContainer"] {
@@ -701,6 +733,7 @@ NIGHT_STYLE = """
     background: #381d25;
     color: #ff9ba3;
 }
+.rework-defects { --accent: var(--night-accent); background: #0a0d12; color: #f8fafc; }
 .rework-kpis { color: #f8fafc; }
 .rework-kpi {
     --accent: var(--night-accent);
@@ -1366,8 +1399,7 @@ def rework_lookup(history, barcodes):
     return result
 
 
-def show_rework_defects(history, result):
-    grade = st.selectbox("Final grade", GRADES, index=2, key="rework_defect_grade")
+def rework_defect_panel(history, result, grade):
     barcodes = result.loc[result["Final EL"].eq(grade), "Barcode"]
     final_stages = {key for key, label in STAGE_NAMES.items() if label == "Final EL"}
     records = history.loc[history["Serial No"].isin(barcodes)]
@@ -1376,31 +1408,25 @@ def show_rework_defects(history, result):
     latest_times = records.groupby("Serial No")["Time"].transform("max")
     latest = records.loc[records["Time"].eq(latest_times) & records["Grade"].eq(grade)]
     # A module can have several defect rows at its latest inspection.
-    by_module = latest.groupby("Serial No", as_index=False)["Pareto Reason"].agg(";".join)
+    by_module = latest.groupby("Serial No")["Pareto Reason"].agg(";".join).to_frame()
     counts = defect_pareto(by_module, len(barcodes))
     if counts.empty:
-        st.info(f"No final inspection defects recorded for {grade} in this batch.")
-        return
-
-    night = st.session_state.get("night_mode", False)
-    text_color = "#f8fafc" if night else "#18253b"
-    chart = alt.Chart(counts).mark_bar(
-        color=REWORK_COLORS[grade][int(night)], cornerRadiusEnd=4,
-    ).encode(
-        x=alt.X("Count:Q", title="Modules", axis=alt.Axis(tickMinStep=1)),
-        y=alt.Y("Defect:N", sort=counts["Defect"].tolist(), title=None, axis=alt.Axis(labelLimit=300)),
-        tooltip=[
-            alt.Tooltip("Defect:N"),
-            alt.Tooltip("Count:Q", title="Modules", format=",d"),
-            alt.Tooltip("Share of period:Q", title=f"Share of {grade} modules", format=".1%"),
-        ],
-    ).properties(
-        height=alt.Step(29), background="transparent",
-    ).configure_axis(
-        labelFont=CHART_FONT, titleFont=CHART_FONT,
-        labelColor=text_color, titleColor=text_color, grid=False,
-    ).configure_view(stroke=None)
-    st.altair_chart(chart, use_container_width=True, theme=None)
+        rows = "<p>No final inspection defects recorded for this grade.</p>"
+    else:
+        largest = int(counts["Count"].iloc[0])
+        rows = "".join(
+            f'<div class="rework-defect-row" title="{escape(f"{defect} · {count:,} modules · {share:.1%} of {grade}")}">'
+            f'<span>{escape(defect)}</span><div class="rework-defect-track">'
+            f'<div class="rework-defect-bar" style="width:{count / largest:.3%}"></div></div>'
+            f'<span class="rework-defect-count">{count:,}</span></div>'
+            for defect, count, share in counts[["Defect", "Count", "Share of period"]].itertuples(index=False, name=None)
+        )
+    day, night = REWORK_COLORS[grade]
+    return (
+        f'<section id="rework-defects-{grade}" class="rework-defects" data-grade="{grade}" '
+        f'style="--day-accent:{day};--night-accent:{night}" aria-label="{grade} final inspection defects">'
+        f'<h3>{grade} final inspection defects</h3>{rows}</section>'
+    )
 
 
 def show_rework_analysis(history, file):
@@ -1427,18 +1453,22 @@ def show_rework_analysis(history, file):
         count = int(counts[grade])
         cards.append((grade, f"{count / total:.1%}" if total else "—", f"{count:,} modules"))
     cards.append(("NA", f"{not_tested:,}", "Not tested yet"))
+    panels = "".join(rework_defect_panel(history, result, grade) for grade in GRADES) if result is not None else ""
     st.html(
         '<section class="rework-summary" aria-labelledby="rework-grade-heading">'
         '<h3 id="rework-grade-heading">Transferred to final grade</h3>'
         '<div class="rework-kpis">'
         + "".join(
-            f'<div class="rework-kpi" style="--day-accent:{REWORK_COLORS[label][0]};--night-accent:{REWORK_COLORS[label][1]}">'
+            f'<div class="rework-kpi" style="--day-accent:{REWORK_COLORS[label][0]};--night-accent:{REWORK_COLORS[label][1]}"'
+            + (f' data-grade="{label}" tabindex="0" aria-controls="rework-defects-{label}"' if panels and label in GRADES else "")
+            + '>'
+
             f'<div class="rework-kpi-label">{label}</div>'
             f'<div class="rework-kpi-value">{value}</div>'
             f'<div class="rework-kpi-detail">{detail}</div></div>'
             for label, value, detail in cards
         )
-        + "</div></section>"
+        + "</div>" + panels + "</section>"
     )
 
     if result is None:
@@ -1449,7 +1479,6 @@ def show_rework_analysis(history, file):
         "from G1, GP, G2, G3 or G4. Percentages use those graded modules. "
         "NA counts modules with no Final EL result in the imported data."
     )
-    show_rework_defects(history, result)
 
 
 def reset_dashboard_view():
@@ -1462,7 +1491,7 @@ def reset_dashboard_view():
 def main():
     st.set_page_config(page_title="RPSG | Defect Dashboard", layout="wide")
     night = st.session_state.get("night_mode", False)
-    style = DASHBOARD_STYLE + (NIGHT_STYLE if night else "")
+    style = DASHBOARD_STYLE + REWORK_HOVER_STYLE + (NIGHT_STYLE if night else "")
     if "unsafe_allow_javascript" in signature(st.html).parameters:
         st.html(style + SCREEN_FIT_SCRIPT, unsafe_allow_javascript=True)
     else:
