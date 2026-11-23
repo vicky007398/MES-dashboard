@@ -359,6 +359,7 @@ DASHBOARD_STYLE = """
     height: auto;
 }
 .st-key-theme_action, .st-key-refresh_action, .st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
+.st-key-page_arrow [data-testid="stButton"],
 .st-key-refresh_action [data-testid="stButton"],
 .st-key-upload_action [data-testid="stPopover"] {
     display: flex;
@@ -368,7 +369,7 @@ DASHBOARD_STYLE = """
 .st-key-dashboard_header { --header-action-size: 2.5rem; }
 .st-key-dashboard_header [data-testid="stHorizontalBlock"] { gap: .45rem; }
 .st-key-dashboard_header [data-testid="stColumn"]:has(
-    :is(.st-key-theme_action, .st-key-refresh_action, .st-key-upload_action)
+    :is(.st-key-theme_action, .st-key-refresh_action, .st-key-upload_action, .st-key-page_arrow)
 ) {
     flex: 0 0 auto;
     width: max-content;
@@ -410,6 +411,10 @@ DASHBOARD_STYLE = """
     min-height: var(--header-action-size);
     height: var(--header-action-size);
 }
+.st-key-dashboard_header .st-key-rework_title h1 {
+    font-size: clamp(.85rem, 1.4vw, 1.6rem);
+}
+.st-key-page_arrow button,
 .st-key-refresh_action button {
     box-sizing: border-box;
     position: relative;
@@ -437,6 +442,7 @@ DASHBOARD_STYLE = """
 }
 .st-key-theme_action label { white-space: nowrap; }
 .st-key-theme_action label p { color: #234266; }
+.st-key-page_arrow button,
 .st-key-refresh_action button,
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
@@ -446,6 +452,7 @@ DASHBOARD_STYLE = """
     font-weight: 700;
     white-space: nowrap;
 }
+.st-key-page_arrow button:is(:hover,:focus-visible),
 .st-key-refresh_action button:is(:hover,:focus-visible),
 [data-testid="stPopoverButton"]:is(:hover,:focus-visible),
 [data-testid="stFormSubmitButton"] button:is(:hover,:focus-visible) {
@@ -1253,20 +1260,34 @@ def rework_lookup(history, barcodes):
     return result
 
 
-def show_rework_analysis(history):
-    st.header("Rework Analysis")
-    st.caption("Upload a Barcode column. Each stage shows its latest grade. Mid EL and Pre EL fall back to the result in the final MES export.")
-    file = st.file_uploader("Rework barcodes", type=["xlsx", "xls"], key="rework_barcodes")
-    if file is None:
+def show_rework_analysis(history, file):
+    result = None
+    if file is not None:
+        try:
+            result = rework_lookup(history, read_rework_barcodes(file))
+        except (ValueError, OSError) as error:
+            st.error(str(error))
+
+    st.subheader("Transferred to final grade")
+    counts = (
+        result["Final EL"].value_counts().reindex(GRADES, fill_value=0)
+        if result is not None else pd.Series(0, index=GRADES)
+    )
+    total = int(counts.sum())
+    for column, grade in zip(st.columns(len(GRADES)), GRADES):
+        count = int(counts[grade])
+        column.metric(grade, f"{count / total:.1%}" if total else "—")
+        column.caption(f"{count:,} modules")
+
+    if result is None:
+        st.info("Use Upload Excel to select a workbook with a Barcode column.")
         return
-    try:
-        barcodes = read_rework_barcodes(file)
-    except (ValueError, OSError) as error:
-        st.error(str(error))
-        return
-    result = rework_lookup(history, barcodes)
-    st.caption(f"{len(result):,} unique barcodes · {result['Lookup'].eq('Found').sum():,} found")
+    st.caption(
+        f"{total:,} of {len(result):,} uploaded modules have a single final grade "
+        "from G1, GP, G2, G3 or G4. Percentages use those graded modules."
+    )
     st.dataframe(result, hide_index=True, width="stretch")
+
 
 def reset_dashboard_view():
     st.session_state["selected_period"] = 0
@@ -1284,13 +1305,20 @@ def main():
     else:
         st.markdown(style, unsafe_allow_html=True)
     initialize()
+    rework_page = st.session_state.get("dashboard_page") == "Rework Analysis"
     with st.container(key="dashboard_header"):
-        brand, heading, theme, refresh, actions = st.columns([2, 3.6, 1.4, 0.9, 1.4], vertical_alignment="center")
+        brand, heading, theme, refresh, actions, navigation = st.columns(
+            [2, 3.6, 1.4, 0.9, 1.4, 0.5], vertical_alignment="center"
+        )
         brand.markdown(
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
             unsafe_allow_html=True,
         )
-        heading.title("DEFECT DASHBOARD", anchor=False)
+        if rework_page:
+            with heading, st.container(key="rework_title"):
+                st.title("String Rework Module Analysis", anchor=False)
+        else:
+            heading.title("DEFECT DASHBOARD", anchor=False)
 
     with theme, st.container(key="theme_action"):
         st.toggle("D/N", key="night_mode")
@@ -1302,23 +1330,35 @@ def main():
         )
 
     with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
-        with st.form("import"):
-            files = st.file_uploader(
-                "MES inspection exports", type=["xlsx", "xls"], accept_multiple_files=True
-            )
-            submitted = st.form_submit_button("Import into local database")
-        if submitted and not files:
-            st.info("Choose an Excel file to import.")
-        if submitted:
-            for file in files:
-                try:
-                    rows, skipped = read_export(file)
-                    added = save_rows(rows)
-                    load_history.clear()
-                except Exception as error:
-                    st.error(f"{file.name} · {error}")
-                    continue
-                st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
+        if rework_page:
+            barcode_file = st.file_uploader("Rework barcodes", type=["xlsx", "xls"], key="rework_barcodes")
+        else:
+            with st.form("import"):
+                files = st.file_uploader(
+                    "MES inspection exports", type=["xlsx", "xls"], accept_multiple_files=True
+                )
+                submitted = st.form_submit_button("Import into local database")
+            if submitted and not files:
+                st.info("Choose an Excel file to import.")
+            if submitted:
+                for file in files:
+                    try:
+                        rows, skipped = read_export(file)
+                        added = save_rows(rows)
+                        load_history.clear()
+                    except Exception as error:
+                        st.error(f"{file.name} · {error}")
+                        continue
+                    st.success(f"{file.name} · {added:,} added · {len(rows)-added:,} duplicates · {skipped:,} incomplete")
+
+    with navigation, st.container(key="page_arrow"):
+        st.button(
+            "←" if rework_page else "→",
+            key="dashboard_page_arrow",
+            help="Back to Defect Dashboard" if rework_page else "Open String Rework Module Analysis",
+            on_click=st.session_state.__setitem__,
+            args=("dashboard_page", "Defect Dashboard" if rework_page else "Rework Analysis"),
+        )
 
     # Include the write-ahead log when another process uses WAL mode.
     database_version = []
@@ -1329,15 +1369,8 @@ def main():
             continue
         database_version.append((path.name, stat.st_mtime_ns, stat.st_size))
     history = load_history(tuple(database_version))
-    page = st.session_state.get("dashboard_page", "Defect Dashboard")
-    dashboard_nav, rework_nav, _ = st.columns([1, 1, 5])
-    for column, label in ((dashboard_nav, "Defect Dashboard"), (rework_nav, "Rework Analysis")):
-        column.button(
-            label, type="primary" if page == label else "secondary",
-            on_click=st.session_state.__setitem__, args=("dashboard_page", label),
-        )
-    if page == "Rework Analysis":
-        show_rework_analysis(history)
+    if rework_page:
+        show_rework_analysis(history, barcode_file)
         st.html('<span id="dashboard-ready" hidden></span>')
         return
     if history.empty:
