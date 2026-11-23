@@ -308,6 +308,7 @@ DASHBOARD_STYLE = """
 .vg-tooltip {
     font-family: "JetBrains Mono", monospace;
 }
+.vg-tooltip td.value { white-space: pre-line; }
 [data-testid="stDataFrame"] {
     --gdg-font-family: "JetBrains Mono", monospace;
 }
@@ -758,6 +759,35 @@ def module_heatmap(records, defect):
     return grid, {f"{row}{column}": modules for (row, column), modules in modules_by_cell.items()}
 
 
+LAMINATOR_CODE = re.compile(r"L(\d+)_(CY\d+)_([UD])", re.IGNORECASE)
+
+
+def decode_laminator(code):
+    match = LAMINATOR_CODE.fullmatch(code.strip())
+    if not match:
+        return code.strip() or "Unavailable", "—", "—"
+    machine, position, level = match.groups()
+    return f"Laminator {int(machine)}", {"U": "Upper", "D": "Lower"}[level.upper()], position.upper()
+
+
+def laminator_hover(modules):
+    by_laminator = defaultdict(set)
+    for barcode, code in modules:
+        laminator, _, _ = decode_laminator(code)
+        by_laminator[laminator].add(barcode)
+    return "\n".join(f"{name}: {len(ids):,}" for name, ids in sorted(by_laminator.items()))
+
+
+def cell_detail_table(modules):
+    rows = [
+        (index, barcode, *decode_laminator(code))
+        for index, (barcode, code) in enumerate(sorted(modules), start=1)
+    ]
+    return pd.DataFrame(
+        rows, columns=["Sr. No.", "Module ID", "Laminator No.", "Upper / Lower", "Module Position"]
+    )
+
+
 def reset_cell_selection():
     st.session_state["cell_selection_version"] = st.session_state.get("cell_selection_version", 0) + 1
 
@@ -768,16 +798,7 @@ def show_cell_details(location, defect, modules):
     @st.dialog(f"Cell {location}", width="large", **options)
     def details():
         st.write(defect)
-        barcodes = pd.DataFrame(sorted(modules), columns=["Barcode No", "Laminator Location"])
-        barcodes["Laminator Location"] = barcodes["Laminator Location"].replace("", "Unavailable")
-        summary = (
-            barcodes.groupby("Laminator Location", sort=True)["Barcode No"]
-            .nunique().reset_index(name="Module Count")
-            .sort_values("Module Count", ascending=False, kind="stable")
-        )
-        st.dataframe(summary, hide_index=True)
-        with st.expander("Barcode details"):
-            st.dataframe(barcodes, hide_index=True)
+        st.dataframe(cell_detail_table(modules), hide_index=True)
         if st.button("Done"):
             reset_cell_selection()
             st.rerun()
@@ -806,7 +827,13 @@ def show_module_heatmap(records, defect, selection_context=None):
     x = alt.X("Display column:O", sort="ascending", axis=None,
               scale=alt.Scale(domain=list(range(1, 24)), paddingInner=.055, paddingOuter=0))
     y = alt.Y("Row:O", sort=list("ABCDEF"), axis=None, scale=alt.Scale(paddingInner=.08, paddingOuter=0))
-    base = alt.Chart(grid).encode(x=x, y=y, tooltip=["Location:N", "Modules:Q"])
+    tooltips = ["Location:N", "Modules:Q"]
+    if defect:
+        grid["Laminator counts"] = grid["Location"].map(
+            {location: laminator_hover(modules) for location, modules in modules_by_cell.items()}
+        ).fillna("—")
+        tooltips.append(alt.Tooltip("Laminator counts:N", title="By laminator"))
+    base = alt.Chart(grid).encode(x=x, y=y, tooltip=tooltips)
     tiles = base.mark_rect(cornerRadius=2, stroke="#d5b8c0", strokeWidth=.65).encode(
         color=alt.Color(
             "Modules:Q",
