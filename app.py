@@ -1124,6 +1124,18 @@ def save_rows(rows):
         return added
 
 
+def history_database_version():
+    # Include the write-ahead log when another process uses WAL mode.
+    database_version = []
+    for path in (DB, DB.with_name(DB.name + "-wal")):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        database_version.append((path.name, stat.st_mtime_ns, stat.st_size))
+    return tuple(database_version)
+
+
 @st.cache_data(show_spinner=False, max_entries=2)
 def load_history(database_version):
     with closing(sqlite3.connect(DB, timeout=15)) as db:
@@ -1458,7 +1470,6 @@ def show_pareto(counts, start, end, grade):
             return defect
 
 
-@st.fragment
 def show_defect_analysis(records, counts, start, end, grade):
     defect = show_pareto(counts, start, end, grade)
     show_module_heatmap(records, defect, f"{grade}_{start}_{end}")
@@ -1637,7 +1648,10 @@ def publish_rework_batch(file):
     st.session_state["published_rework_source"] = identity
 
 
-def show_rework_analysis(history, is_admin):
+@st.fragment
+def show_rework_analysis(history, is_admin, database_version):
+    if history_database_version() != database_version:
+        st.rerun()
     with closing(sqlite3.connect(DB, timeout=15)) as db:
         modules = db.execute("SELECT barcode, made_on FROM dashboard_rework_modules ORDER BY barcode").fetchall()
     periods = dashboard_periods() + [("All dates", None, None)]
@@ -1677,7 +1691,10 @@ def show_rework_analysis(history, is_admin):
         count = int(counts[grade])
         cards.append((grade, f"{count / total:.1%}" if total else "—", f"{count:,} modules"))
     cards.append(("NA", f"{not_tested:,}", "Not tested yet"))
-    panels = "".join(rework_defect_panel(history, result, grade) for grade in GRADES) if result is not None else ""
+    panels = ""
+    if barcodes:
+        batch_history = history.loc[history["Serial No"].isin(barcodes)]
+        panels = "".join(rework_defect_panel(batch_history, result, grade) for grade in GRADES)
     st.html(
         '<section class="rework-summary" aria-labelledby="rework-grade-heading">'
         '<h3 id="rework-grade-heading">Transferred to final grade</h3>'
@@ -1714,6 +1731,34 @@ def reset_dashboard_view():
     st.session_state["selected_grade"] = "G2"
     st.session_state["dashboard_view_version"] = st.session_state.get("dashboard_view_version", 0) + 1
     reset_cell_selection()
+
+
+@st.fragment
+def show_defect_controls(history, periods, database_version):
+    if history_database_version() != database_version or dashboard_periods() != periods:
+        st.rerun()
+    period_index = st.session_state.get("selected_period", 0)
+    grade = st.session_state.get("selected_grade", "G2")
+    with st.container(key="analysis_controls"):
+        period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
+        with period_buttons, st.container(key="period_buttons"):
+            for index, (column, (label, _, _)) in enumerate(zip(st.columns(len(periods)), periods)):
+                column.button(
+                    label, key=f"period_choice_{index}",
+                    type="primary" if index == period_index else "secondary",
+                    on_click=st.session_state.__setitem__, args=("selected_period", index),
+                )
+        with grade_buttons, st.container(key="grade_buttons"):
+            for column, choice in zip(st.columns(len(GRADES[2:])), GRADES[2:]):
+                column.button(
+                    choice, key=f"grade_choice_{choice}",
+                    type="primary" if choice == grade else "secondary",
+                    on_click=st.session_state.__setitem__, args=("selected_grade", choice),
+                )
+    _, start, end = periods[period_index]
+    period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
+    records = period.loc[period["Grade"].eq(grade)]
+    show_defect_analysis(records, defect_pareto(records, len(period)), start, end, grade)
 
 
 def main():
@@ -1830,17 +1875,10 @@ def main():
             args=("dashboard_page", "Defect Dashboard" if rework_page else "Rework Analysis"),
         )
 
-    # Include the write-ahead log when another process uses WAL mode.
-    database_version = []
-    for path in (DB, DB.with_name(DB.name + "-wal")):
-        try:
-            stat = path.stat()
-        except FileNotFoundError:
-            continue
-        database_version.append((path.name, stat.st_mtime_ns, stat.st_size))
-    history = load_history(tuple(database_version))
+    database_version = history_database_version()
+    history = load_history(database_version)
     if rework_page:
-        show_rework_analysis(history, is_admin)
+        show_rework_analysis(history, is_admin, database_version)
         st.html('<span id="dashboard-ready" hidden></span>')
         return
     if history.empty:
@@ -1856,28 +1894,7 @@ def main():
 
     with st.container(key="analysis_heading"):
         st.header("Defect Analysis")
-    period_index = st.session_state.get("selected_period", 0)
-    grade = st.session_state.get("selected_grade", "G2")
-    with st.container(key="analysis_controls"):
-        period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
-        with period_buttons, st.container(key="period_buttons"):
-            for index, (column, (label, _, _)) in enumerate(zip(st.columns(len(periods)), periods)):
-                column.button(
-                    label, key=f"period_choice_{index}",
-                    type="primary" if index == period_index else "secondary",
-                    on_click=st.session_state.__setitem__, args=("selected_period", index),
-                )
-        with grade_buttons, st.container(key="grade_buttons"):
-            for column, choice in zip(st.columns(len(GRADES[2:])), GRADES[2:]):
-                column.button(
-                    choice, key=f"grade_choice_{choice}",
-                    type="primary" if choice == grade else "secondary",
-                    on_click=st.session_state.__setitem__, args=("selected_grade", choice),
-                )
-    _, start, end = periods[period_index]
-    period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
-    records = period.loc[period["Grade"].eq(grade)]
-    show_defect_analysis(records, defect_pareto(records, len(period)), start, end, grade)
+    show_defect_controls(history, periods, database_version)
     st.html('<span id="dashboard-ready" hidden></span>')
 
 
