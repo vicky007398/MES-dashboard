@@ -1,0 +1,46 @@
+name: Build Windows dashboard
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - app.py
+      - requirements.txt
+      - windows_launcher.py
+      - build-windows.bat
+      - .github/workflows/windows-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build executable
+        shell: cmd
+        run: build-windows.bat
+      - name: Check the packaged server starts
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath (Resolve-Path 'dist/MES-Dashboard.exe') -ArgumentList '--no-browser' -PassThru
+          try {
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($app.HasExited) { throw 'The packaged dashboard exited early.' }
+              try {
+                if ((Invoke-WebRequest 'http://127.0.0.1:8501/_stcore/health' -TimeoutSec 2).StatusCode -eq 200) { exit 0 }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+            throw 'The packaged dashboard did not start.'
+          } finally {
+            if (!$app.HasExited) { taskkill /PID $app.Id /T /F | Out-Null }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MES-Dashboard-Windows
+          path: dist/MES-Dashboard.exe
+          if-no-files-found: error
