@@ -372,7 +372,20 @@ DASHBOARD_STYLE = """
     background: #194ac5;
     color: #fff;
 }
-.st-key-refresh_action button p { font: 700 1.35rem/1 system-ui, sans-serif; }
+.st-key-refresh_action button p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+.st-key-refresh_action button::after {
+    content: "";
+    width: 1.3rem;
+    height: 1.3rem;
+    flex: 0 0 1.3rem;
+    background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 4v5h-5M20 9a8 8 0 1 0 .2 5'/%3E%3C/svg%3E");
+}
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
     background: #245cbd;
@@ -946,7 +959,7 @@ def show_pareto(counts, start, end, grade):
             )
         return None
 
-    version = st.session_state.get("defect_selection_version", 0)
+    version = st.session_state.get("dashboard_view_version", 0)
     chart_key = f"defect_{grade}_{start}_{end}_{version}"
     active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     selected_defect = active_selection[0].get("Defect") if active_selection else None
@@ -1058,9 +1071,7 @@ def show_defect_analysis(records, counts, start, end, grade):
 
 
 def reset_dashboard_view():
-    st.session_state.pop("dashboard_period", None)
-    st.session_state.pop("dashboard_grade", None)
-    st.session_state["defect_selection_version"] = st.session_state.get("defect_selection_version", 0) + 1
+    st.session_state["dashboard_view_version"] = st.session_state.get("dashboard_view_version", 0) + 1
     reset_cell_selection()
 
 
@@ -1081,7 +1092,7 @@ def main():
 
     with refresh, st.container(key="refresh_action"):
         st.button(
-            "↻", key="dashboard_refresh", on_click=reset_dashboard_view,
+            "Refresh", key="dashboard_refresh", on_click=reset_dashboard_view,
             help="Refresh dashboard and clear selections",
         )
 
@@ -1137,17 +1148,18 @@ def main():
     with st.container(key="analysis_heading"):
         st.header("Defect Analysis")
     period_labels = [label for label, _, _ in periods]
+    view_version = st.session_state.get("dashboard_view_version", 0)
     with st.container(key="analysis_controls"):
         period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
         with period_buttons:
             period_label = st.segmented_control(
                 "Period", period_labels, default="MTD", label_visibility="collapsed",
-                key="dashboard_period",
+                key=f"dashboard_period_{view_version}",
             )
         with grade_buttons, st.container(key="grade_buttons"):
             grade = st.segmented_control(
                 "Grade", GRADES[2:], default="G2", label_visibility="collapsed",
-                key="dashboard_grade",
+                key=f"dashboard_grade_{view_version}",
             )
     _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
     grade = grade or "G2"
