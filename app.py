@@ -568,6 +568,7 @@ DASHBOARD_STYLE = """
     background: #fce5e7;
     color: #982936;
 }
+#rework-grade-heading { margin: 0 0 .7rem; }
 .rework-kpis {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
@@ -1359,7 +1360,6 @@ def show_rework_analysis(history, file):
         except (ValueError, OSError) as error:
             st.error(str(error))
 
-    st.subheader("Transferred to final grade")
     counts = (
         result["Final EL"].value_counts().reindex(GRADES, fill_value=0)
         if result is not None else pd.Series(0, index=GRADES)
@@ -1376,14 +1376,16 @@ def show_rework_analysis(history, file):
         cards.append((grade, f"{count / total:.1%}" if total else "—", f"{count:,} modules"))
     cards.append(("NA", f"{not_tested:,}", "Not tested yet"))
     st.html(
-        '<div class="rework-kpis" aria-label="Rework KPIs">'
+        '<section class="rework-summary" aria-labelledby="rework-grade-heading">'
+        '<h3 id="rework-grade-heading">Transferred to final grade</h3>'
+        '<div class="rework-kpis">'
         + "".join(
             f'<div class="rework-kpi"><div class="rework-kpi-label">{label}</div>'
             f'<div class="rework-kpi-value">{value}</div>'
             f'<div class="rework-kpi-detail">{detail}</div></div>'
             for label, value, detail in cards
         )
-        + "</div>"
+        + "</div></section>"
     )
 
     if result is None:
