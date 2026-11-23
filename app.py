@@ -759,22 +759,23 @@ def module_heatmap(records, defect):
     return grid, {f"{row}{column}": modules for (row, column), modules in modules_by_cell.items()}
 
 
-LAMINATOR_CODE = re.compile(r"L(\d+)_CY(\d+)_([UD])", re.IGNORECASE)
+LAMINATOR_CODE = re.compile(r"(?:L\d+_)?CY(\d+)[_\s]+([UD])", re.IGNORECASE)
 
 
 def decode_laminator(code):
     match = LAMINATOR_CODE.fullmatch(code.strip())
     if not match:
-        return code.strip() or "Unavailable", "—", "—"
-    machine, position, level = match.groups()
-    return f"Laminator {int(machine)}", {"U": "Upper", "D": "Lower"}[level.upper()], str(int(position))
+        return code.strip() or "Unavailable", "—"
+    machine, level = match.groups()
+    return f"Laminator {int(machine)}", {"U": "Upper", "D": "Lower"}[level.upper()]
 
 
 def laminator_hover(modules):
     by_laminator = defaultdict(set)
     for barcode, code in modules:
-        laminator, _, _ = decode_laminator(code)
-        by_laminator[laminator].add(barcode)
+        laminator, level = decode_laminator(code)
+        label = laminator if level == "—" else f"{laminator} {level}"
+        by_laminator[label].add(barcode)
     return "\n".join(f"{name}: {len(ids):,}" for name, ids in sorted(by_laminator.items()))
 
 
@@ -784,7 +785,7 @@ def cell_detail_table(modules):
         for index, (barcode, code) in enumerate(sorted(modules), start=1)
     ]
     return pd.DataFrame(
-        rows, columns=["Sr. No.", "Module ID", "Laminator No.", "Upper / Lower", "Module Position"]
+        rows, columns=["Sr. No.", "Module ID", "Laminator No.", "Upper / Lower"]
     )
 
 
