@@ -768,11 +768,16 @@ def show_cell_details(location, defect, modules):
     @st.dialog(f"Cell {location}", width="large", **options)
     def details():
         st.write(defect)
-        st.dataframe(
-            pd.DataFrame(sorted(modules), columns=["Barcode No", "Laminator Location"])
-            .replace({"Laminator Location": {"": "Unavailable"}}),
-            hide_index=True,
+        barcodes = pd.DataFrame(sorted(modules), columns=["Barcode No", "Laminator Location"])
+        barcodes["Laminator Location"] = barcodes["Laminator Location"].replace("", "Unavailable")
+        summary = (
+            barcodes.groupby("Laminator Location", sort=True)["Barcode No"]
+            .nunique().reset_index(name="Module Count")
+            .sort_values("Module Count", ascending=False, kind="stable")
         )
+        st.dataframe(summary, hide_index=True)
+        with st.expander("Barcode details"):
+            st.dataframe(barcodes, hide_index=True)
         if st.button("Done"):
             reset_cell_selection()
             st.rerun()
@@ -844,11 +849,10 @@ def show_module_heatmap(records, defect, selection_context=None):
             show_cell_details(location, defect, modules)
 
 
-def show_pareto(records, period_total, start, end, grade):
+def show_pareto(counts, start, end, grade):
     with st.container(key="pareto_heading"):
         title, legend = st.columns([1, 2], vertical_alignment="center")
         title.subheader(f"{grade} Defect Pareto")
-    counts = defect_pareto(records, period_total)
     if counts.empty:
         with st.container(key=f"pareto_{grade}"):
             st.markdown(
@@ -860,7 +864,6 @@ def show_pareto(records, period_total, start, end, grade):
     chart_key = f"defect_{grade}_{start}_{end}"
     active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     selected_defect = active_selection[0].get("Defect") if active_selection else None
-    is_highlighted = f"datum.Defect === {json.dumps(selected_defect)}" if selected_defect else "true"
     bar_color = SELECTED_BAR_COLOR if selected_defect else BAR_COLOR
     bar_label = "Selected defect" if selected_defect else "Defect count"
     legend.markdown(
@@ -900,10 +903,15 @@ def show_pareto(records, period_total, start, end, grade):
     count_axis = alt.Y(
         "Count:Q", scale=count_scale, axis=None,
     )
-    pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=False)
+    is_selected = 'vlSelectionTest("defect_pick_store", datum)'
+    selection_empty = 'length(data("defect_pick_store")) === 0'
+    pick = alt.selection_point(name="defect_pick", fields=["Defect"], toggle=is_selected)
     bars = base.mark_bar(cornerRadiusEnd=3, cursor="pointer").encode(
         y=count_axis, y2="BarBase:Q",
-        color=alt.condition(is_highlighted, alt.value(bar_color), alt.value(MUTED_BAR_COLOR)),
+        color=alt.value(alt.ExprRef(expr=(
+            f'{selection_empty} ? "{BAR_COLOR}" : '
+            f'{is_selected} ? "{SELECTED_BAR_COLOR}" : "{MUTED_BAR_COLOR}"'
+        ))),
     ).add_params(pick)
     value_labels = base.mark_text(
         dy=-8, color=PERIOD_SHARE_COLOR, font=CHART_FONT, fontSize=8 if dense else 10, fontWeight="bold"
@@ -915,7 +923,7 @@ def show_pareto(records, period_total, start, end, grade):
         y=alt.Y("BarBase:Q", scale=count_scale, axis=None),
         text=alt.Text("Count:Q", format=",d"),
         color=alt.condition(
-            is_highlighted,
+            f"{selection_empty} || {is_selected}",
             alt.value("#ffffff"), alt.value("#233675"),
         ),
     )
@@ -955,6 +963,12 @@ def show_pareto(records, period_total, start, end, grade):
         defect = selected[0].get("Defect")
         if defect in counts["Defect"].values:
             return defect
+
+
+@st.fragment
+def show_defect_analysis(records, counts, start, end, grade):
+    defect = show_pareto(counts, start, end, grade)
+    show_module_heatmap(records, defect, f"{grade}_{start}_{end}")
 
 
 def main():
@@ -1028,8 +1042,7 @@ def main():
     grade = grade or "G2"
     period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
     records = period.loc[period["Grade"].eq(grade)]
-    defect = show_pareto(records, len(period), start, end, grade)
-    show_module_heatmap(records, defect, f"{grade}_{start}_{end}")
+    show_defect_analysis(records, defect_pareto(records, len(period)), start, end, grade)
 
 
 if __name__ == "__main__":
