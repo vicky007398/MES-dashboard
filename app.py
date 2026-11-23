@@ -301,6 +301,16 @@ LOGO_DATA_URI = (
 
 CHART_FONT = "JetBrains Mono, monospace"
 
+REWORK_COLORS = {
+    "Modules Made": ("#245cbd", "#4ea5ff"),
+    "G1": ("#08704c", "#19d68b"),
+    "GP": ("#006b7c", "#22d3ee"),
+    "G2": ("#456912", "#a3e635"),
+    "G3": ("#9a4109", "#f97316"),
+    "G4": ("#a62137", "#ff5c68"),
+    "NA": ("#865400", "#f4c44e"),
+}
+
 DASHBOARD_STYLE = """
 <style>
 @font-face {
@@ -594,13 +604,6 @@ DASHBOARD_STYLE = """
     text-align: center;
 }
 /* Stringer palette, with deeper text colors for the light theme. */
-.rework-kpi[data-kpi="Modules Made"] { --day-accent: #245cbd; --night-accent: #4ea5ff; }
-.rework-kpi[data-kpi="G1"] { --day-accent: #08704c; --night-accent: #19d68b; }
-.rework-kpi[data-kpi="GP"] { --day-accent: #006b7c; --night-accent: #22d3ee; }
-.rework-kpi[data-kpi="G2"] { --day-accent: #456912; --night-accent: #a3e635; }
-.rework-kpi[data-kpi="G3"] { --day-accent: #9a4109; --night-accent: #f97316; }
-.rework-kpi[data-kpi="G4"] { --day-accent: #a62137; --night-accent: #ff5c68; }
-.rework-kpi[data-kpi="NA"] { --day-accent: #865400; --night-accent: #f4c44e; }
 .rework-kpi-label { font-size: .8rem; font-weight: 700; }
 .rework-kpi-value { color: var(--accent); font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
 .rework-kpi-detail { font-size: .7rem; opacity: .8; }
@@ -1363,6 +1366,43 @@ def rework_lookup(history, barcodes):
     return result
 
 
+def show_rework_defects(history, result):
+    grade = st.selectbox("Final grade", GRADES, index=2, key="rework_defect_grade")
+    barcodes = result.loc[result["Final EL"].eq(grade), "Barcode"]
+    final_stages = {key for key, label in STAGE_NAMES.items() if label == "Final EL"}
+    records = history.loc[history["Serial No"].isin(barcodes)]
+    stage_keys = records["Stage"].str.casefold().str.replace(r"[^a-z0-9]", "", regex=True)
+    records = records.loc[stage_keys.isin(final_stages)]
+    latest_times = records.groupby("Serial No")["Time"].transform("max")
+    latest = records.loc[records["Time"].eq(latest_times) & records["Grade"].eq(grade)]
+    # A module can have several defect rows at its latest inspection.
+    by_module = latest.groupby("Serial No", as_index=False)["Pareto Reason"].agg(";".join)
+    counts = defect_pareto(by_module, len(barcodes))
+    if counts.empty:
+        st.info(f"No final inspection defects recorded for {grade} in this batch.")
+        return
+
+    night = st.session_state.get("night_mode", False)
+    text_color = "#f8fafc" if night else "#18253b"
+    chart = alt.Chart(counts).mark_bar(
+        color=REWORK_COLORS[grade][int(night)], cornerRadiusEnd=4,
+    ).encode(
+        x=alt.X("Count:Q", title="Modules", axis=alt.Axis(tickMinStep=1)),
+        y=alt.Y("Defect:N", sort=counts["Defect"].tolist(), title=None, axis=alt.Axis(labelLimit=300)),
+        tooltip=[
+            alt.Tooltip("Defect:N"),
+            alt.Tooltip("Count:Q", title="Modules", format=",d"),
+            alt.Tooltip("Share of period:Q", title=f"Share of {grade} modules", format=".1%"),
+        ],
+    ).properties(
+        height=alt.Step(29), background="transparent",
+    ).configure_axis(
+        labelFont=CHART_FONT, titleFont=CHART_FONT,
+        labelColor=text_color, titleColor=text_color, grid=False,
+    ).configure_view(stroke=None)
+    st.altair_chart(chart, use_container_width=True, theme=None)
+
+
 def show_rework_analysis(history, file):
     result = None
     if file is not None:
@@ -1392,7 +1432,8 @@ def show_rework_analysis(history, file):
         '<h3 id="rework-grade-heading">Transferred to final grade</h3>'
         '<div class="rework-kpis">'
         + "".join(
-            f'<div class="rework-kpi" data-kpi="{label}"><div class="rework-kpi-label">{label}</div>'
+            f'<div class="rework-kpi" style="--day-accent:{REWORK_COLORS[label][0]};--night-accent:{REWORK_COLORS[label][1]}">'
+            f'<div class="rework-kpi-label">{label}</div>'
             f'<div class="rework-kpi-value">{value}</div>'
             f'<div class="rework-kpi-detail">{detail}</div></div>'
             for label, value, detail in cards
@@ -1408,7 +1449,7 @@ def show_rework_analysis(history, file):
         "from G1, GP, G2, G3 or G4. Percentages use those graded modules. "
         "NA counts modules with no Final EL result in the imported data."
     )
-    st.dataframe(result, hide_index=True, width="stretch")
+    show_rework_defects(history, result)
 
 
 def reset_dashboard_view():
