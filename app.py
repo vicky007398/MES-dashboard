@@ -578,20 +578,31 @@ DASHBOARD_STYLE = """
     color: #18253b;
 }
 .rework-kpi {
+    --accent: var(--day-accent);
+    --card-surface: #ffffff;
     display: grid;
     align-content: center;
     gap: .25rem;
     min-height: 5rem;
     padding: .65rem;
-    border: 1px solid #c9d7e8;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--card-surface));
+    border-top: 3px solid var(--accent);
     border-radius: .65rem;
-    background: #ffffff;
+    background: linear-gradient(
+        180deg, color-mix(in srgb, var(--accent) 12%, var(--card-surface)), var(--card-surface)
+    );
     text-align: center;
 }
-.rework-kpi:first-child { background: #e9f0fb; }
-.rework-kpi:last-child { background: #fff4da; }
+/* Stringer palette, with deeper text colors for the light theme. */
+.rework-kpi[data-kpi="Modules Made"] { --day-accent: #245cbd; --night-accent: #4ea5ff; }
+.rework-kpi[data-kpi="G1"] { --day-accent: #08704c; --night-accent: #19d68b; }
+.rework-kpi[data-kpi="GP"] { --day-accent: #006b7c; --night-accent: #22d3ee; }
+.rework-kpi[data-kpi="G2"] { --day-accent: #456912; --night-accent: #a3e635; }
+.rework-kpi[data-kpi="G3"] { --day-accent: #9a4109; --night-accent: #f97316; }
+.rework-kpi[data-kpi="G4"] { --day-accent: #a62137; --night-accent: #ff5c68; }
+.rework-kpi[data-kpi="NA"] { --day-accent: #865400; --night-accent: #f4c44e; }
 .rework-kpi-label { font-size: .8rem; font-weight: 700; }
-.rework-kpi-value { font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
+.rework-kpi-value { color: var(--accent); font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
 .rework-kpi-detail { font-size: .7rem; opacity: .8; }
 .pareto-legend {
     display: flex;
@@ -688,9 +699,10 @@ NIGHT_STYLE = """
     color: #ff9ba3;
 }
 .rework-kpis { color: #f8fafc; }
-.rework-kpi { background: #0a0d12; border-color: #27313e; }
-.rework-kpi:first-child { background: #102237; }
-.rework-kpi:last-child { background: #2c2416; }
+.rework-kpi {
+    --accent: var(--night-accent);
+    --card-surface: #0a0d12;
+}
 .pareto-legend, .pareto-zero { color: #aab4c2; }
 .st-key-theme_action label p { color: #f8fafc; }
 .pareto-legend .chart-instruction { color: #4ea5ff; }
@@ -1380,7 +1392,7 @@ def show_rework_analysis(history, file):
         '<h3 id="rework-grade-heading">Transferred to final grade</h3>'
         '<div class="rework-kpis">'
         + "".join(
-            f'<div class="rework-kpi"><div class="rework-kpi-label">{label}</div>'
+            f'<div class="rework-kpi" data-kpi="{label}"><div class="rework-kpi-label">{label}</div>'
             f'<div class="rework-kpi-value">{value}</div>'
             f'<div class="rework-kpi-detail">{detail}</div></div>'
             for label, value, detail in cards
