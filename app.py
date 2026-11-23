@@ -568,6 +568,30 @@ DASHBOARD_STYLE = """
     background: #fce5e7;
     color: #982936;
 }
+.rework-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+    gap: .55rem;
+    margin: .2rem 0 .4rem;
+    font-family: "JetBrains Mono", monospace;
+    color: #18253b;
+}
+.rework-kpi {
+    display: grid;
+    align-content: center;
+    gap: .25rem;
+    min-height: 5rem;
+    padding: .65rem;
+    border: 1px solid #c9d7e8;
+    border-radius: .65rem;
+    background: #ffffff;
+    text-align: center;
+}
+.rework-kpi:first-child { background: #e9f0fb; }
+.rework-kpi:last-child { background: #fff4da; }
+.rework-kpi-label { font-size: .8rem; font-weight: 700; }
+.rework-kpi-value { font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
+.rework-kpi-detail { font-size: .7rem; opacity: .8; }
 .pareto-legend {
     display: flex;
     justify-content: flex-end;
@@ -662,6 +686,10 @@ NIGHT_STYLE = """
     background: #381d25;
     color: #ff9ba3;
 }
+.rework-kpis { color: #f8fafc; }
+.rework-kpi { background: #0a0d12; border-color: #27313e; }
+.rework-kpi:first-child { background: #102237; }
+.rework-kpi:last-child { background: #2c2416; }
 .pareto-legend, .pareto-zero { color: #aab4c2; }
 .st-key-theme_action label p { color: #f8fafc; }
 .pareto-legend .chart-instruction { color: #4ea5ff; }
@@ -1337,17 +1365,34 @@ def show_rework_analysis(history, file):
         if result is not None else pd.Series(0, index=GRADES)
     )
     total = int(counts.sum())
-    for column, grade in zip(st.columns(len(GRADES)), GRADES):
+    made = len(result) if result is not None else 0
+    not_tested = (
+        int(result["Final EL"].isin(("—", "NA", "N/A")).sum())
+        if result is not None else 0
+    )
+    cards = [("Modules Made", f"{made:,}", "Unique barcodes")]
+    for grade in GRADES:
         count = int(counts[grade])
-        column.metric(grade, f"{count / total:.1%}" if total else "—")
-        column.caption(f"{count:,} modules")
+        cards.append((grade, f"{count / total:.1%}" if total else "—", f"{count:,} modules"))
+    cards.append(("NA", f"{not_tested:,}", "Not tested yet"))
+    st.html(
+        '<div class="rework-kpis" aria-label="Rework KPIs">'
+        + "".join(
+            f'<div class="rework-kpi"><div class="rework-kpi-label">{label}</div>'
+            f'<div class="rework-kpi-value">{value}</div>'
+            f'<div class="rework-kpi-detail">{detail}</div></div>'
+            for label, value, detail in cards
+        )
+        + "</div>"
+    )
 
     if result is None:
         st.info("Use Upload Excel to load String Rework Module Tracking or upload a barcode workbook.")
         return
     st.caption(
         f"{total:,} of {len(result):,} uploaded modules have a single final grade "
-        "from G1, GP, G2, G3 or G4. Percentages use those graded modules."
+        "from G1, GP, G2, G3 or G4. Percentages use those graded modules. "
+        "NA counts modules with no Final EL result in the imported data."
     )
     st.dataframe(result, hide_index=True, width="stretch")
 
