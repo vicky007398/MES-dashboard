@@ -319,6 +319,11 @@ DASHBOARD_STYLE = """
     min-height: 100vh;
 }
 [data-testid="stHeader"] { display: none; }
+[data-testid="stMainBlockContainer"]:not([data-dashboard-ready]):not(:has(#dashboard-ready, [data-testid="stException"])),
+[data-testid="stMainBlockContainer"][data-dashboard-loading]:not([data-dashboard-ready]) {
+    visibility: hidden;
+}
+[data-testid="stElementContainer"]:has(> [data-testid="stHtml"] #dashboard-ready) { display: none; }
 [data-testid="stMainBlockContainer"] {
     max-width: none;
     padding: .2rem clamp(.75rem, 2vw, 2rem) .6rem;
@@ -528,6 +533,7 @@ SCREEN_FIT_SCRIPT = """
     const viewport = document.querySelector('[data-testid="stMain"]');
     if (!dashboard || !viewport || dashboard.dataset.fitConnected) return;
     dashboard.dataset.fitConnected = "true";
+    dashboard.dataset.dashboardLoading = "true";
 
     const desktop = window.matchMedia("(min-width: 901px)");
     let frame;
@@ -556,8 +562,45 @@ SCREEN_FIT_SCRIPT = """
     const sizeObserver = new ResizeObserver(scheduleFit);
     sizeObserver.observe(dashboard);
     sizeObserver.observe(viewport);
-    document.fonts.ready.then(scheduleFit);
-    scheduleFit();
+    function revealDashboard() {
+        cancelAnimationFrame(frame);
+        fitDashboard();
+        dashboard.dataset.dashboardReady = "true";
+        delete dashboard.dataset.dashboardLoading;
+    }
+
+    // Wait for the full layout before measuring it for the first visible frame.
+    function checkStartup() {
+        if (!dashboard.querySelector("#dashboard-ready")) {
+            if (dashboard.querySelector('[data-testid="stException"]')) {
+                startupObserver.disconnect();
+                revealDashboard();
+            }
+            return;
+        }
+        startupObserver.disconnect();
+        let chartFrame;
+        const deadline = setTimeout(() => {
+            cancelAnimationFrame(chartFrame);
+            revealDashboard();
+        }, 800);
+        const waitForCharts = () => {
+            if (dashboard.dataset.dashboardReady) return;
+            const charts = [...dashboard.querySelectorAll('[data-testid="stVegaLiteChart"]')];
+            if (charts.some(chart => !chart.querySelector("svg.marks, canvas"))) {
+                chartFrame = requestAnimationFrame(waitForCharts);
+                return;
+            }
+            clearTimeout(deadline);
+            revealDashboard();
+        };
+        document.fonts.ready.then(() => {
+            chartFrame = requestAnimationFrame(waitForCharts);
+        });
+    }
+    const startupObserver = new MutationObserver(checkStartup);
+    startupObserver.observe(dashboard, {childList: true, subtree: true});
+    checkStartup();
 })();
 </script>
 """
@@ -1036,6 +1079,7 @@ def main():
     if history.empty:
         st.info("Use Upload Excel to import your first MES export.")
         show_module_heatmap(history, None)
+        st.html('<span id="dashboard-ready" hidden></span>')
         return
 
     final = history["Stage"].eq(FINAL_STAGE)
@@ -1071,6 +1115,7 @@ def main():
     period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
     records = period.loc[period["Grade"].eq(grade)]
     show_defect_analysis(records, defect_pareto(records, len(period)), start, end, grade)
+    st.html('<span id="dashboard-ready" hidden></span>')
 
 
 if __name__ == "__main__":
