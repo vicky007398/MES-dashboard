@@ -1219,19 +1219,58 @@ def show_defect_analysis(records, counts, start, end, grade):
 
 
 def read_rework_barcodes(file):
-    with pd.ExcelFile(BytesIO(file.getvalue())) as workbook:
+    with pd.ExcelFile(file) as workbook:
         for sheet in workbook.sheet_names:
             frame = workbook.parse(sheet, dtype=str, keep_default_na=False)
-            column = next(
-                (name for name in frame.columns
-                 if re.sub(r"[^a-z0-9]", "", str(name).casefold()) in BARCODE_HEADERS),
-                None,
-            )
+            headers = {
+                re.sub(r"[^a-z0-9]", "", str(column).casefold()): column
+                for column in frame.columns
+            }
+            start = next((headers[key] for key in ("startingbarcodeno", "startingbarcode") if key in headers), None)
+            end = next((headers[key] for key in ("endingbarcodeno", "endingbarcode") if key in headers), None)
+            if start is not None and end is not None:
+                barcodes = {}
+                for row, (first, last) in enumerate(frame[[start, end]].itertuples(index=False, name=None), 2):
+                    first, last = first.strip().upper(), last.strip().upper()
+                    if not first and not last:
+                        continue
+                    if first and first == last:
+                        barcodes[first] = None
+                        continue
+                    first_match = re.fullmatch(r"(.*?)([0-9]+)([^0-9]*)", first)
+                    last_match = re.fullmatch(r"(.*?)([0-9]+)([^0-9]*)", last)
+                    if not first_match or not last_match:
+                        raise ValueError(f"{sheet}, row {row}: enter both endpoints with a numeric sequence.")
+                    prefix, first_number, suffix = first_match.groups()
+                    last_prefix, last_number, last_suffix = last_match.groups()
+                    width = len(first_number) if first_number.startswith("0") else 0
+                    low, high = int(first_number), int(last_number)
+                    if (prefix, suffix) != (last_prefix, last_suffix) or low > high or str(high).zfill(width) != last_number:
+                        raise ValueError(f"{sheet}, row {row}: check the barcode format and ascending range.")
+                    for number in range(low, high + 1):
+                        barcodes[f"{prefix}{str(number).zfill(width)}{suffix}"] = None
+                if barcodes:
+                    return list(barcodes)
+            column = next((value for key, value in headers.items() if key in BARCODE_HEADERS), None)
             if column is not None:
                 barcodes = list(dict.fromkeys(value.strip().upper() for value in frame[column] if value.strip()))
                 if barcodes:
                     return barcodes
-    raise ValueError("Add a Barcode column with at least one module barcode.")
+    raise ValueError("Add Starting Barcode No and Ending Barcode No columns, or a Barcode column.")
+
+
+def find_rework_workbook(folder):
+    if not folder.strip():
+        raise ValueError("Enter the shared folder path.")
+    matches = sorted(
+        path for path in Path(folder.strip().strip('"')).iterdir()
+        if path.suffix.lower() in {".xlsx", ".xls", ".xlsm"}
+        and re.sub(r"[^a-z0-9]", "", path.stem.casefold()) == "stringreworkmoduletracking"
+        and path.is_file()
+    )
+    if len(matches) != 1:
+        raise ValueError("Expected one workbook named String Rework Module Tracking in that folder.")
+    return matches[0]
 
 
 def rework_lookup(history, barcodes):
@@ -1264,7 +1303,8 @@ def show_rework_analysis(history, file):
     result = None
     if file is not None:
         try:
-            result = rework_lookup(history, read_rework_barcodes(file))
+            source = BytesIO(file.getvalue()) if hasattr(file, "getvalue") else file
+            result = rework_lookup(history, read_rework_barcodes(source))
         except (ValueError, OSError) as error:
             st.error(str(error))
 
@@ -1280,7 +1320,7 @@ def show_rework_analysis(history, file):
         column.caption(f"{count:,} modules")
 
     if result is None:
-        st.info("Use Upload Excel to select a workbook with a Barcode column.")
+        st.info("Use Upload Excel to load String Rework Module Tracking or upload a barcode workbook.")
         return
     st.caption(
         f"{total:,} of {len(result):,} uploaded modules have a single final grade "
@@ -1331,7 +1371,17 @@ def main():
 
     with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
         if rework_page:
-            barcode_file = st.file_uploader("Rework barcodes", type=["xlsx", "xls"], key="rework_barcodes")
+            with st.form("shared_rework_workbook"):
+                folder = st.text_input("Shared folder path")
+                load_shared = st.form_submit_button("Load tracking workbook")
+            if load_shared:
+                try:
+                    st.session_state["shared_rework_file"] = find_rework_workbook(folder)
+                except (ValueError, OSError) as error:
+                    st.session_state.pop("shared_rework_file", None)
+                    st.error(str(error))
+            uploaded = st.file_uploader("Rework workbook", type=["xlsx", "xls", "xlsm"], key="rework_barcodes")
+            barcode_file = uploaded if uploaded is not None else st.session_state.get("shared_rework_file")
         else:
             with st.form("import"):
                 files = st.file_uploader(
