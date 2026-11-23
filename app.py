@@ -349,13 +349,15 @@ DASHBOARD_STYLE = """
     width: min(100%, 170px);
     height: auto;
 }
-.st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
+.st-key-refresh_action, .st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
+.st-key-refresh_action [data-testid="stButton"],
 .st-key-upload_action [data-testid="stPopover"],
 .st-key-grade_buttons [data-testid="stButtonGroup"] {
     display: flex;
     width: 100%;
     justify-content: flex-end;
 }
+.st-key-refresh_action button { white-space: nowrap; }
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
     background: #245cbd;
@@ -929,7 +931,8 @@ def show_pareto(counts, start, end, grade):
             )
         return None
 
-    chart_key = f"defect_{grade}_{start}_{end}"
+    version = st.session_state.get("defect_selection_version", 0)
+    chart_key = f"defect_{grade}_{start}_{end}_{version}"
     active_selection = st.session_state.get(chart_key, {}).get("selection", {}).get("defect_pick", [])
     selected_defect = active_selection[0].get("Defect") if active_selection else None
     bar_color = SELECTED_BAR_COLOR if selected_defect else BAR_COLOR
@@ -1039,6 +1042,13 @@ def show_defect_analysis(records, counts, start, end, grade):
     show_module_heatmap(records, defect, f"{grade}_{start}_{end}")
 
 
+def reset_dashboard_view():
+    st.session_state.pop("dashboard_period", None)
+    st.session_state.pop("dashboard_grade", None)
+    st.session_state["defect_selection_version"] = st.session_state.get("defect_selection_version", 0) + 1
+    reset_cell_selection()
+
+
 def main():
     st.set_page_config(page_title="RPSG | Defect Dashboard", layout="wide")
     if "unsafe_allow_javascript" in signature(st.html).parameters:
@@ -1047,12 +1057,15 @@ def main():
         st.markdown(DASHBOARD_STYLE, unsafe_allow_html=True)
     initialize()
     with st.container(key="dashboard_header"):
-        brand, heading, actions = st.columns([1, 3, 1], vertical_alignment="center")
+        brand, heading, refresh, actions = st.columns([2, 5, 0.8, 1.2], vertical_alignment="center")
         brand.markdown(
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
             unsafe_allow_html=True,
         )
         heading.title("Defect Dashboard")
+
+    with refresh, st.container(key="refresh_action"):
+        st.button("Refresh", on_click=reset_dashboard_view, help="Restore the default dashboard view")
 
     with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
         with st.form("import"):
@@ -1110,11 +1123,13 @@ def main():
         period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
         with period_buttons:
             period_label = st.segmented_control(
-                "Period", period_labels, default="MTD", label_visibility="collapsed"
+                "Period", period_labels, default="MTD", label_visibility="collapsed",
+                key="dashboard_period",
             )
         with grade_buttons, st.container(key="grade_buttons"):
             grade = st.segmented_control(
-                "Grade", GRADES[2:], default="G2", label_visibility="collapsed"
+                "Grade", GRADES[2:], default="G2", label_visibility="collapsed",
+                key="dashboard_grade",
             )
     _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
     grade = grade or "G2"
