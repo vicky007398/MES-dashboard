@@ -915,6 +915,18 @@ def initialize():
                 barcodes TEXT NOT NULL
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dashboard_rework_modules (
+                barcode TEXT PRIMARY KEY,
+                made_on TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        legacy = db.execute("SELECT barcodes FROM dashboard_rework_batch WHERE id = 1").fetchone()
+        if legacy and not db.execute("SELECT 1 FROM dashboard_rework_modules LIMIT 1").fetchone():
+            db.executemany(
+                "INSERT OR IGNORE INTO dashboard_rework_modules (barcode) VALUES (?)",
+                ((barcode,) for barcode in json.loads(legacy[0])),
+            )
         if db.execute("SELECT 1 FROM dashboard_accounts WHERE username = 'admin'").fetchone() is None:
             write_account(db, "admin", "admin", getenv("MES_ADMIN_PASSWORD") or "12345")
 
@@ -1121,6 +1133,17 @@ def load_history(database_version):
 
 GRADES = ("G1", "GP", "G2", "G3", "G4")
 IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def dashboard_periods():
+    today = datetime.now(IST).date()
+    yesterday = today - timedelta(days=1)
+    return [
+        ("MTD", today.replace(day=1), today),
+        (f"Yesterday · {yesterday:%d %b}", yesterday, yesterday),
+        ("Last week", today - timedelta(days=7), yesterday),
+        ("Last 2 weeks", today - timedelta(weeks=2), yesterday),
+    ]
 
 
 def grade_summary(history, periods):
@@ -1432,7 +1455,20 @@ def show_defect_analysis(records, counts, start, end, grade):
 
 
 
-def read_rework_barcodes(file):
+def rework_date(value):
+    value = value.strip()
+    iso = clean_time(value)
+    if iso:
+        return iso[:10]
+    for pattern in ("%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, pattern).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def read_rework_modules(file):
     with pd.ExcelFile(file) as workbook:
         for sheet in workbook.sheet_names:
             frame = workbook.parse(sheet, header=None, dtype=str, keep_default_na=False)
@@ -1453,14 +1489,17 @@ def read_rework_barcodes(file):
             else:
                 continue
             data = frame.iloc[header_row + 1:]
+            date_column = next((headers[key] for key in ("date", "reworkdate", "productiondate") if key in headers), None)
+            dates = data.iloc[:, date_column].map(rework_date).tolist() if date_column is not None else [""] * len(data)
+            barcodes = {}
             if start is not None and end is not None:
-                barcodes = {}
-                for row, (first, last) in enumerate(data.iloc[:, [start, end]].itertuples(index=False, name=None), header_row + 2):
+                ranges = data.iloc[:, [start, end]].itertuples(index=False, name=None)
+                for row, ((first, last), made_on) in enumerate(zip(ranges, dates), header_row + 2):
                     first, last = first.strip().upper(), last.strip().upper()
                     if not first and not last:
                         continue
                     if first and first == last:
-                        barcodes[first] = None
+                        barcodes[first] = max(barcodes.get(first, ""), made_on)
                         continue
                     first_match = re.fullmatch(r"(.*?)([0-9]+)([^0-9]*)", first)
                     last_match = re.fullmatch(r"(.*?)([0-9]+)([^0-9]*)", last)
@@ -1473,13 +1512,17 @@ def read_rework_barcodes(file):
                     if (prefix, suffix) != (last_prefix, last_suffix) or low > high or str(high).zfill(width) != last_number:
                         raise ValueError(f"{sheet}, row {row}: check the barcode format and ascending range.")
                     for number in range(low, high + 1):
-                        barcodes[f"{prefix}{str(number).zfill(width)}{suffix}"] = None
+                        barcode = f"{prefix}{str(number).zfill(width)}{suffix}"
+                        barcodes[barcode] = max(barcodes.get(barcode, ""), made_on)
                 if barcodes:
-                    return list(barcodes)
+                    return list(barcodes.items())
             if column is not None:
-                barcodes = list(dict.fromkeys(value.strip().upper() for value in data.iloc[:, column] if value.strip()))
+                for value, made_on in zip(data.iloc[:, column], dates):
+                    barcode = value.strip().upper()
+                    if barcode:
+                        barcodes[barcode] = max(barcodes.get(barcode, ""), made_on)
                 if barcodes:
-                    return barcodes
+                    return list(barcodes.items())
     raise ValueError("Add Barcode Starting No. and Barcode Ending No. columns, or a Barcode column.")
 
 
@@ -1573,20 +1616,41 @@ def publish_rework_batch(file):
     identity = ("upload", sha256(source.getbuffer()).hexdigest()) if isinstance(source, BytesIO) else ("shared", file)
     if st.session_state.get("published_rework_source") == identity:
         return
-    barcodes = read_rework_barcodes(source)
+    modules = read_rework_modules(source)
     with closing(sqlite3.connect(DB)) as db, db:
-        db.execute(
-            """INSERT INTO dashboard_rework_batch (id, barcodes) VALUES (1, ?)
-               ON CONFLICT(id) DO UPDATE SET barcodes = excluded.barcodes""",
-            (json.dumps(barcodes),),
+        db.executemany(
+            """INSERT INTO dashboard_rework_modules (barcode, made_on) VALUES (?, ?)
+               ON CONFLICT(barcode) DO UPDATE SET made_on = excluded.made_on
+               WHERE excluded.made_on > dashboard_rework_modules.made_on""",
+            modules,
         )
     st.session_state["published_rework_source"] = identity
 
 
 def show_rework_analysis(history, is_admin):
     with closing(sqlite3.connect(DB)) as db:
-        batch = db.execute("SELECT barcodes FROM dashboard_rework_batch WHERE id = 1").fetchone()
-    result = rework_lookup(history, json.loads(batch[0])) if batch else None
+        modules = db.execute("SELECT barcode, made_on FROM dashboard_rework_modules ORDER BY barcode").fetchall()
+    periods = dashboard_periods() + [("All dates", None, None)]
+    default = 0 if any(made_on for _, made_on in modules) else len(periods) - 1
+    selected = st.session_state.get("rework_period", default)
+    with st.container(key="analysis_controls"):
+        with st.container(key="period_buttons"):
+            for index, (column, (label, _, _)) in enumerate(zip(st.columns(len(periods)), periods)):
+                column.button(
+                    label, key=f"rework_period_{index}",
+                    type="primary" if index == selected else "secondary",
+                    on_click=st.session_state.__setitem__, args=("rework_period", index),
+                )
+    _, start, end = periods[selected]
+    barcodes = [
+        barcode for barcode, made_on in modules
+        if start is None or start.isoformat() <= made_on <= end.isoformat()
+    ]
+    result = rework_lookup(history, barcodes) if modules else None
+    if modules and not barcodes:
+        st.info("No saved rework modules for this period.")
+    if start is not None and any(not made_on for _, made_on in modules):
+        st.caption("Modules without a tracking date are visible under All dates.")
 
     counts = (
         result["Final EL"].value_counts().reindex(GRADES, fill_value=0)
@@ -1628,7 +1692,7 @@ def show_rework_analysis(history, is_admin):
             st.info("No rework batch is available yet.")
         return
     st.caption(
-        f"{total:,} of {len(result):,} uploaded modules have a single final grade "
+        f"{total:,} of {len(result):,} modules in this period have a single final grade "
         "from G1, GP, G2, G3 or G4. Percentages use those graded modules. "
         "NA counts modules with no Final EL result in the imported data."
     )
@@ -1636,6 +1700,7 @@ def show_rework_analysis(history, is_admin):
 
 def reset_dashboard_view():
     st.session_state["selected_period"] = 0
+    st.session_state.pop("rework_period", None)
     st.session_state["selected_grade"] = "G2"
     st.session_state["dashboard_view_version"] = st.session_state.get("dashboard_view_version", 0) + 1
     reset_cell_selection()
@@ -1770,14 +1835,7 @@ def main():
     if final.any():
         history = history.loc[final].copy()
     history["Date"] = history["Time"].str[:10]
-    today = datetime.now(IST).date()
-    yesterday = today - timedelta(days=1)
-    periods = [
-        ("MTD", today.replace(day=1), today),
-        (f"Yesterday · {yesterday:%d %b}", yesterday, yesterday),
-        ("Last week", today - timedelta(days=7), yesterday),
-        ("Last 2 weeks", today - timedelta(weeks=2), yesterday),
-    ]
+    periods = dashboard_periods()
     with st.container(key="grade_summary"):
         st.table(grade_summary(history, periods))
 
