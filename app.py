@@ -767,7 +767,7 @@ def decode_laminator(code):
     if not match:
         return code.strip() or "Unavailable", "—"
     machine, level = match.groups()
-    return f"Laminator {int(machine)}", {"U": "Upper", "D": "Lower"}[level.upper()]
+    return f"Lam{int(machine)}", level.upper()
 
 
 def laminator_hover(modules):
