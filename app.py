@@ -20,6 +20,15 @@ FINAL_STAGE = "Final inspection"
 FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect Location", "Defect Name"]
 SOURCE = ["LotSN", "Operating Time", "Operation", "Shift", "Judgment Result", "Defect Position", "Defect Reason"]
 
+REWORK_STAGES = ("Mid EL", "Pre EL", "Final EL")
+STAGE_NAMES = {
+    "midel": "Mid EL",
+    "preel": "Pre EL",
+    "finalel": "Final EL",
+    "finalinspection": "Final EL",
+}
+BARCODE_HEADERS = {"barcode", "barcodes", "modulebarcode", "moduleid", "lotsn", "serialno", "serialnumber"}
+
 
 BAR_COLOR = "#2463d7"
 SELECTED_BAR_COLOR = "#a91435"
@@ -803,9 +812,11 @@ def read_export(file):
                 name.casefold() in headers for name in FINAL_SOURCE if name is not None
             )
             if final_export:
-                frame = frame.assign(**{"Stage": FINAL_STAGE})
+                stage_column = headers.get("operation", headers.get("stage"))
+                if stage_column is None:
+                    frame = frame.assign(**{"Stage": FINAL_STAGE})
                 selected = [
-                    headers[name.casefold()] if name is not None else "Stage"
+                    headers[name.casefold()] if name is not None else (stage_column or "Stage")
                     for name in FINAL_SOURCE
                 ]
             else:
@@ -815,10 +826,14 @@ def read_export(file):
                     continue
             laminator = headers.get("laminator no")
             frame = frame.assign(_laminator=frame[laminator] if laminator is not None else "")
+            status_columns = {
+                headers[key]: stage for key, stage in (("mid_el_result", "Mid EL"), ("pre el", "Pre EL"))
+                if final_export and key in headers
+            }
             rows = []
             skipped = 0
-            for values in frame[[*selected, "_laminator"]].itertuples(index=False, name=None):
-                serial, _, stage, shift, grade, position, reason, lami_location = map(clean_text, values)
+            for values in frame[[*selected, "_laminator", *status_columns]].itertuples(index=False, name=None):
+                serial, _, stage, shift, grade, position, reason, lami_location = map(clean_text, values[:8])
                 time = clean_time(values[1])
                 if not any((serial, time, shift, grade, position, reason)) and (final_export or not stage):
                     continue
@@ -830,6 +845,11 @@ def read_export(file):
                 if grade == "GP":
                     position = reason = ""
                 rows.append((serial.upper(), time, stage, shift, grade, position, reason, gp_reason, lami_location))
+                if stage == FINAL_STAGE:
+                    for status_stage, value in zip(status_columns.values(), values[8:]):
+                        status = clean_text(value).upper()
+                        if status:
+                            rows.append((serial.upper(), time, f"{status_stage} result", shift, status, "", "", "", ""))
             if rows:
                 return rows, skipped
     raise ValueError("No usable inspection records found. Check the column headers and Operating Time.")
@@ -1190,6 +1210,64 @@ def show_defect_analysis(records, counts, start, end, grade):
     show_module_heatmap(records, defect, f"{grade}_{start}_{end}")
 
 
+
+def read_rework_barcodes(file):
+    with pd.ExcelFile(BytesIO(file.getvalue())) as workbook:
+        for sheet in workbook.sheet_names:
+            frame = workbook.parse(sheet, dtype=str, keep_default_na=False)
+            column = next(
+                (name for name in frame.columns
+                 if re.sub(r"[^a-z0-9]", "", str(name).casefold()) in BARCODE_HEADERS),
+                None,
+            )
+            if column is not None:
+                barcodes = list(dict.fromkeys(value.strip().upper() for value in frame[column] if value.strip()))
+                if barcodes:
+                    return barcodes
+    raise ValueError("Add a Barcode column with at least one module barcode.")
+
+
+def rework_lookup(history, barcodes):
+    records = history.loc[history["Serial No"].isin(barcodes), ["Serial No", "Stage", "Time", "Grade"]].copy()
+    records["Stage key"] = records["Stage"].str.casefold().str.replace(r"[^a-z0-9]", "", regex=True)
+    stages = {}
+    for label in REWORK_STAGES:
+        keys = [key for key, stage in STAGE_NAMES.items() if stage == label]
+        candidates = records.loc[records["Stage key"].isin(keys)]
+        fallback = records.loc[
+            records["Stage"].eq(f"{label} result") & ~records["Serial No"].isin(candidates["Serial No"])
+        ]
+        candidates = pd.concat([candidates, fallback])
+        latest_times = candidates.groupby("Serial No")["Time"].transform("max")
+        stages[label] = (
+            candidates.loc[candidates["Time"].eq(latest_times)]
+            .groupby("Serial No")["Grade"].agg(lambda values: " / ".join(sorted(set(values))))
+        )
+    result = pd.DataFrame({"Barcode": barcodes})
+    for label, grades in stages.items():
+        result[label] = result["Barcode"].map(grades).fillna("—")
+    matched = set(records["Serial No"])
+    result["Lookup"] = result["Barcode"].map(
+        lambda barcode: "Found" if barcode in matched else "Not found"
+    )
+    return result
+
+
+def show_rework_analysis(history):
+    st.header("Rework Analysis")
+    st.caption("Upload a Barcode column. Each stage shows its latest grade. Mid EL and Pre EL fall back to the result in the final MES export.")
+    file = st.file_uploader("Rework barcodes", type=["xlsx", "xls"], key="rework_barcodes")
+    if file is None:
+        return
+    try:
+        barcodes = read_rework_barcodes(file)
+    except (ValueError, OSError) as error:
+        st.error(str(error))
+        return
+    result = rework_lookup(history, barcodes)
+    st.caption(f"{len(result):,} unique barcodes · {result['Lookup'].eq('Found').sum():,} found")
+    st.dataframe(result, hide_index=True, width="stretch")
+
 def reset_dashboard_view():
     st.session_state["selected_period"] = 0
     st.session_state["selected_grade"] = "G2"
@@ -1226,7 +1304,7 @@ def main():
     with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
         with st.form("import"):
             files = st.file_uploader(
-                "Final Defect query exports", type=["xlsx", "xls"], accept_multiple_files=True
+                "MES inspection exports", type=["xlsx", "xls"], accept_multiple_files=True
             )
             submitted = st.form_submit_button("Import into local database")
         if submitted and not files:
@@ -1251,6 +1329,17 @@ def main():
             continue
         database_version.append((path.name, stat.st_mtime_ns, stat.st_size))
     history = load_history(tuple(database_version))
+    page = st.session_state.get("dashboard_page", "Defect Dashboard")
+    dashboard_nav, rework_nav, _ = st.columns([1, 1, 5])
+    for column, label in ((dashboard_nav, "Defect Dashboard"), (rework_nav, "Rework Analysis")):
+        column.button(
+            label, type="primary" if page == label else "secondary",
+            on_click=st.session_state.__setitem__, args=("dashboard_page", label),
+        )
+    if page == "Rework Analysis":
+        show_rework_analysis(history)
+        st.html('<span id="dashboard-ready" hidden></span>')
+        return
     if history.empty:
         st.info("Use Upload Excel to import your first MES export.")
         show_module_heatmap(history, None)
