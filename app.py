@@ -554,48 +554,52 @@ NIGHT_STYLE = """
 <style>
 [data-testid="stAppViewContainer"] {
     color-scheme: dark;
-    background: #101827;
-    color: #e7eef9;
+    background: linear-gradient(145deg, #020304, #070a0e 44%, #05070a);
+    color: #f8fafc;
 }
 [data-testid="stMainBlockContainer"] :is(h1,h2,h3),
-.pareto-zero strong { color: #e7eef9; }
-.st-key-dashboard_header { border-color: #354660; }
+.pareto-zero strong { color: #f8fafc; }
+.st-key-dashboard_header { border-color: #27313e; }
 .dashboard-logo { background: #f3f6fb; border-radius: .35rem; padding: .2rem .35rem; }
 [class*="st-key-pareto_"]:not(.st-key-pareto_heading),
 .st-key-grade_summary table {
-    background: #172336;
-    border-color: #354660;
-    color: #e7eef9;
+    background: #0a0d12;
+    border-color: #27313e;
+    color: #f8fafc;
 }
-.st-key-grade_summary table tbody tr:nth-child(even) { background: #1c2b40; }
-.st-key-grade_summary table :is(th,td) { border-color: #354660; }
+.st-key-grade_summary table tbody tr:nth-child(even) { background: #0f141b; }
+.st-key-grade_summary table :is(th,td) { border-color: #27313e; }
 .st-key-grade_summary table thead th:nth-child(n),
 .st-key-grade_summary table tbody tr:last-child > * {
-    background: #22334d;
-    color: #d4e5ff;
+    background: #17202b;
+    color: #f8fafc;
 }
-.st-key-grade_summary table tbody th { color: #d4e5ff; }
-.st-key-grade_summary table tbody tr:nth-child(1) > * { background: #173b35; color: #a3ebce; }
-.st-key-grade_summary table tbody tr:nth-child(2) > * { background: #233c62; color: #c2dbff; }
-.pareto-legend, .pareto-zero { color: #becde1; }
-.pareto-legend .chart-instruction { color: #a9cbff; }
+.st-key-grade_summary table thead th:nth-child(n+2):nth-child(-n+3) { color: #4ea5ff; }
+.st-key-grade_summary table thead th:nth-child(n+4):nth-child(-n+5) { color: #22d3ee; }
+.st-key-grade_summary table thead th:nth-child(n+6):nth-child(-n+7) { color: #19d68b; }
+.st-key-grade_summary table thead th:nth-child(n+8) { color: #f4c44e; }
+.st-key-grade_summary table tbody th { color: #f8fafc; }
+.st-key-grade_summary table tbody tr:nth-child(1) > * { background: #10271f; color: #19d68b; }
+.st-key-grade_summary table tbody tr:nth-child(2) > * { background: #102237; color: #4ea5ff; }
+.pareto-legend, .pareto-zero { color: #aab4c2; }
+.pareto-legend .chart-instruction { color: #4ea5ff; }
 .st-key-analysis_controls button[data-testid="stBaseButton-secondary"] {
-    background: #172336;
-    border-color: #425a7c;
-    color: #d4e5ff;
+    background: #0a0d12;
+    border-color: #27313e;
+    color: #f8fafc;
 }
 :is([data-testid="stPopoverBody"], [data-testid="stFileUploaderDropzone"], [role="dialog"]) {
     color-scheme: dark;
-    background: #172336;
-    color: #e7eef9;
-    border-color: #425a7c;
+    background: #0a0d12;
+    color: #f8fafc;
+    border-color: #27313e;
 }
 [data-testid="stPopoverBody"] :is(label,small,p),
-[data-testid="stFileUploader"] :is(small,span) { color: #d4e5ff; }
+[data-testid="stFileUploader"] :is(small,span) { color: #f8fafc; }
 [data-testid="stFileUploaderDropzone"] button {
-    background: #22334d;
-    color: #e7eef9;
-    border-color: #425a7c;
+    background: #17202b;
+    color: #f8fafc;
+    border-color: #27313e;
 }
 </style>
 """
@@ -923,7 +927,7 @@ def show_cell_details(location, defect, modules):
 
 def show_module_heatmap(records, defect, selection_context=None):
     night = st.session_state.get("night_mode", False)
-    heat_bands = (("0", "#172336"), *HEAT_BANDS[1:]) if night else HEAT_BANDS
+    heat_bands = (("0", "#17202b"), *HEAT_BANDS[1:]) if night else HEAT_BANDS
     with st.container(key="heatmap_heading"):
         title, legend = st.columns([1.5, 1], vertical_alignment="center")
         title.subheader(f"Module Heat Map · {defect}" if defect else "Module Heat Map")
@@ -970,7 +974,7 @@ def show_module_heatmap(records, defect, selection_context=None):
         ).add_params(pick)
     seam = pd.DataFrame({"Row": list("ABCDEF"), "Display column": 12, "Marker": "*"})
     stars = alt.Chart(seam).mark_text(
-        font=CHART_FONT, fontSize=12, fontWeight="bold", color="#becde1" if night else "#52657e", dy=2,
+        font=CHART_FONT, fontSize=12, fontWeight="bold", color="#aab4c2" if night else "#52657e", dy=2,
     ).encode(x=x, y=y, text="Marker:N")
     chart = (tiles + labels + stars).properties(
         height=132, padding=alt.Padding(top=1, right=1, bottom=1, left=1), background="transparent",
@@ -995,9 +999,9 @@ def show_module_heatmap(records, defect, selection_context=None):
 
 def show_pareto(counts, start, end, grade):
     night = st.session_state.get("night_mode", False)
-    period_share_color = "#a9cbff" if night else PERIOD_SHARE_COLOR
-    cumulative_color = "#d3a7ff" if night else CUMULATIVE_COLOR
-    defect_name_color = "#86ddce" if night else DEFECT_NAME_COLOR
+    period_share_color = "#4ea5ff" if night else PERIOD_SHARE_COLOR
+    cumulative_color = "#f4c44e" if night else CUMULATIVE_COLOR
+    defect_name_color = "#f8fafc" if night else DEFECT_NAME_COLOR
     with st.container(key="pareto_heading"):
         title, legend = st.columns([1, 2], vertical_alignment="center")
         title.subheader(f"{grade} Defect Pareto")
@@ -1081,7 +1085,7 @@ def show_pareto(counts, start, end, grade):
     )
     cumulative = base.mark_line(
         color=cumulative_color,
-        point=alt.OverlayMarkDef(fill="#172336" if night else "#ffffff", stroke=cumulative_color, strokeWidth=1.5, size=32),
+        point=alt.OverlayMarkDef(fill="#17202b" if night else "#ffffff", stroke=cumulative_color, strokeWidth=1.5, size=32),
     ).encode(
         y=cumulative_y, order=alt.Order("Rank:Q"),
     )
@@ -1099,7 +1103,7 @@ def show_pareto(counts, start, end, grade):
         height=236, padding=alt.Padding(top=2, right=2, bottom=2, left=2), background="transparent",
         autosize=alt.AutoSizeParams(type="fit", contains="padding"),
     ).configure_axis(
-        labelFont=CHART_FONT, titleFont=CHART_FONT, labelFontSize=10, titleFontSize=11, labelColor=defect_name_color, titleColor="#e7eef9" if night else "#18253b",
+        labelFont=CHART_FONT, titleFont=CHART_FONT, labelFontSize=10, titleFontSize=11, labelColor=defect_name_color, titleColor="#f8fafc" if night else "#18253b",
         domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
     ).configure_view(stroke=None)
     with st.container(key=f"pareto_{grade}"):
