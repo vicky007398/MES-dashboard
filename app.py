@@ -1137,7 +1137,7 @@ def main():
         st.markdown(style, unsafe_allow_html=True)
     initialize()
     with st.container(key="dashboard_header"):
-        brand, heading, theme, refresh, actions = st.columns([2, 4.4, 0.8, 0.8, 1.2], vertical_alignment="center")
+        brand, heading, theme, refresh, actions = st.columns([2, 3.6, 1.4, 0.9, 1.4], vertical_alignment="center")
         brand.markdown(
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
             unsafe_allow_html=True,
@@ -1146,7 +1146,7 @@ def main():
 
     with theme, st.container(key="theme_action"):
         st.button(
-            "Day" if night else "Night", key="dashboard_theme",
+            "Day / Night", key="dashboard_theme",
             on_click=st.session_state.__setitem__, args=("night_mode", not night),
             help="Switch to day theme" if night else "Switch to night theme",
         )
