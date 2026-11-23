@@ -50,3 +50,14 @@ today. Yesterday, Last week, and Last 2 weeks cover the preceding 1, 7, and 14
 completed calendar days. Grade percentages use all imported inspection records
 in the selected period as the denominator. The chart counts each inspection
 record with a named defect once and includes every calendar date in the period.
+
+## Build a Windows executable
+
+On Windows, open Command Prompt in the folder containing `app.py` and run
+`build-windows.bat`. The executable is created at `dist\MES-Dashboard.exe`.
+Stop the existing Streamlit process before launching the executable so port
+8501 is free. To keep your existing history and accounts, put the `data`
+folder beside the executable before launching it. The executable opens
+the dashboard in your browser and keeps its local server running in the
+command window. For later hosting, deploy the Python app on the host and share
+its HTTPS address.

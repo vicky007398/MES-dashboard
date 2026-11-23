@@ -6,3 +6,7 @@ Cleaned Reports/
 *.xlsx
 *.xls
 *.sqlite3*
+.venv-build/
+build/
+dist/
+MES-Dashboard.spec
