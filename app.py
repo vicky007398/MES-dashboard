@@ -357,7 +357,22 @@ DASHBOARD_STYLE = """
     width: 100%;
     justify-content: flex-end;
 }
-.st-key-refresh_action button { white-space: nowrap; }
+.st-key-refresh_action button {
+    box-sizing: border-box;
+    width: 2.25rem;
+    height: 2.25rem;
+    min-height: 0;
+    padding: 0;
+    border: 1px solid #245cbd;
+    border-radius: .4rem;
+    background: #245cbd;
+    color: #fff;
+}
+.st-key-refresh_action button:is(:hover,:focus-visible) {
+    background: #194ac5;
+    color: #fff;
+}
+.st-key-refresh_action button p { font: 700 1.35rem/1 system-ui, sans-serif; }
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
     background: #245cbd;
@@ -1065,7 +1080,10 @@ def main():
         heading.title("Defect Dashboard")
 
     with refresh, st.container(key="refresh_action"):
-        st.button("Refresh", on_click=reset_dashboard_view, help="Restore the default dashboard view")
+        st.button(
+            "↻", key="dashboard_refresh", on_click=reset_dashboard_view,
+            help="Refresh dashboard and clear selections",
+        )
 
     with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
         with st.form("import"):
