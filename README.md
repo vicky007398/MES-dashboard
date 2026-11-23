@@ -18,6 +18,19 @@ The app stores history in `data/mes.sqlite3` and skips rows with identical clean
 
 The database and Excel files are excluded from Git.
 
+## Keep inspection history when moving or hosting
+
+The database file contains the imported inspection history. Stop the local app
+before copying `data/mes.sqlite3`. For another local installation, place that
+file in the new app's `data` folder. For hosting, mount persistent storage and
+copy the file to that storage before starting the app. Set `MES_DB_PATH` to the
+full database file path on that mount, for example `/data/mes.sqlite3`. Run one
+dashboard instance against the SQLite file.
+
+Daily and overlapping exports can be imported again. SQLite skips identical
+cleaned inspection records and keeps distinct inspections for the same barcode.
+Keep the database outside the public Git repository.
+
 ## Final Defect query exports
 
 Use the MES **Final Defect query** workbook for daily analysis. The dashboard

@@ -7,6 +7,7 @@ from inspect import signature
 from io import BytesIO
 from pathlib import Path
 import json
+from os import getenv
 import re
 import sqlite3
 from textwrap import wrap
@@ -15,7 +16,11 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-DB = Path(__file__).resolve().parent / "data" / "mes.sqlite3"
+database_path = getenv("MES_DB_PATH", "").strip()
+DB = (
+    Path(database_path).expanduser().resolve()
+    if database_path else Path(__file__).resolve().parent / "data" / "mes.sqlite3"
+)
 COLUMNS = ["Serial No", "Time", "Stage", "Shift", "Grade", "Defect Position", "Defect Reason"]
 FINAL_STAGE = "Final inspection"
 FINAL_SOURCE = ["Module ID", "Operating Time", None, "Shift", "Grade", "Defect Location", "Defect Name"]
@@ -840,7 +845,7 @@ SCREEN_FIT_SCRIPT = """
 
 
 def initialize():
-    DB.parent.mkdir(exist_ok=True)
+    DB.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(DB)) as db, db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS inspections (
