@@ -1,7 +1,8 @@
 from collections import defaultdict
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
-from hashlib import sha256
+from hashlib import pbkdf2_hmac, sha256
+from hmac import compare_digest
 from html import escape
 from inspect import signature
 from io import BytesIO
@@ -9,6 +10,7 @@ from pathlib import Path
 import json
 from os import getenv
 import re
+from secrets import token_bytes
 import sqlite3
 from textwrap import wrap
 
@@ -385,7 +387,7 @@ DASHBOARD_STYLE = """
 .st-key-dashboard_header { --header-action-size: 2.5rem; }
 .st-key-dashboard_header [data-testid="stHorizontalBlock"] { gap: .45rem; }
 .st-key-dashboard_header [data-testid="stColumn"]:has(
-    :is(.st-key-theme_action, .st-key-refresh_action, .st-key-upload_action, .st-key-page_arrow)
+    :is(.st-key-theme_action, .st-key-refresh_action, .st-key-upload_action, .st-key-page_arrow, .st-key-account_action)
 ) {
     flex: 0 0 auto;
     width: max-content;
@@ -584,6 +586,17 @@ DASHBOARD_STYLE = """
     background: #fce5e7;
     color: #982936;
 }
+.st-key-sign_in {
+    max-width: 28rem;
+    margin: clamp(1rem, 10vh, 6rem) auto 0;
+    padding: 1.2rem;
+    border: 1px solid #c9d7e8;
+    border-radius: .9rem;
+    background: #fff;
+    color: #18253b;
+}
+.sign-in-brand { display: block; width: 10rem; margin: 0 auto .9rem; }
+.sign-in-title { text-align: center; font-family: "JetBrains Mono", monospace; }
 #rework-grade-heading { margin: 0 0 .7rem; }
 .rework-kpis {
     display: grid;
@@ -872,6 +885,96 @@ def initialize():
                 location TEXT NOT NULL
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dashboard_accounts (
+                username TEXT PRIMARY KEY COLLATE NOCASE,
+                role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+                salt BLOB NOT NULL,
+                password_hash BLOB NOT NULL
+            )
+        """)
+        if db.execute("SELECT 1 FROM dashboard_accounts WHERE username = 'admin'").fetchone() is None:
+            write_account(db, "admin", "admin", getenv("MES_ADMIN_PASSWORD") or "12345")
+
+
+def password_digest(password, salt):
+    return pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600_000)
+
+
+def write_account(db, username, role, password):
+    salt = token_bytes(16)
+    return db.execute(
+        "INSERT INTO dashboard_accounts VALUES (?, ?, ?, ?) ON CONFLICT(username) DO NOTHING",
+        (username, role, salt, password_digest(password, salt)),
+    ).rowcount == 1
+
+
+def verify_login(username, role, password):
+    with closing(sqlite3.connect(DB)) as db:
+        record = db.execute(
+            "SELECT username, salt, password_hash FROM dashboard_accounts WHERE username = ? AND role = ?",
+            (username, role),
+        ).fetchone()
+    digest = password_digest(password, record[1] if record else bytes(16))
+    if record and compare_digest(digest, record[2]):
+        return record[0]
+
+
+def show_sign_in():
+    with st.container(key="sign_in"):
+        st.html(
+            f'<img class="sign-in-brand" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">'
+            '<h1 class="sign-in-title">Defect Dashboard</h1>'
+        )
+        with st.form("login", clear_on_submit=True):
+            role = st.radio("Sign in as", ("Admin", "User"), horizontal=True)
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Sign in")
+        if submitted:
+            account = verify_login(username.strip(), role.lower(), password)
+            if account:
+                st.session_state["signed_in_account"] = (account, role.lower())
+                st.rerun()
+            st.error("Invalid username or password.")
+
+
+def show_account_menu(username, is_admin):
+    with st.popover("Account"):
+        st.write(f"Signed in as {username}")
+        if is_admin:
+            with st.form("new_dashboard_user", clear_on_submit=True):
+                new_user = st.text_input("New username")
+                new_password = st.text_input("New user password", type="password")
+                create = st.form_submit_button("Create user")
+            if create:
+                if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", new_user.strip()) or not new_password:
+                    st.error("Enter a username using letters, numbers, dots, underscores or hyphens, and a password.")
+                else:
+                    with closing(sqlite3.connect(DB)) as db, db:
+                        created = write_account(db, new_user.strip(), "user", new_password)
+                    if created:
+                        st.success("User created.")
+                    else:
+                        st.error("That username already exists.")
+        with st.form("change_dashboard_password", clear_on_submit=True):
+            current = st.text_input("Current password", type="password")
+            replacement = st.text_input("New password", type="password")
+            change = st.form_submit_button("Change password")
+        if change:
+            if not replacement or not verify_login(username, "admin" if is_admin else "user", current):
+                st.error("Enter the correct current password and a new password.")
+            else:
+                salt = token_bytes(16)
+                with closing(sqlite3.connect(DB)) as db, db:
+                    db.execute(
+                        "UPDATE dashboard_accounts SET salt = ?, password_hash = ? WHERE username = ?",
+                        (salt, password_digest(replacement, salt), username),
+                    )
+                st.success("Password changed.")
+        if st.button("Sign out"):
+            st.session_state.clear()
+            st.rerun()
 
 
 def clean_text(value):
@@ -1502,10 +1605,17 @@ def main():
     else:
         st.markdown(style, unsafe_allow_html=True)
     initialize()
+    signed_in = st.session_state.get("signed_in_account")
+    if signed_in is None:
+        show_sign_in()
+        st.html('<span id="dashboard-ready" hidden></span>')
+        return
+    username, role = signed_in
+    is_admin = role == "admin"
     rework_page = st.session_state.get("dashboard_page") == "Rework Analysis"
     with st.container(key="dashboard_header"):
-        brand, heading, theme, refresh, actions, navigation = st.columns(
-            [2, 3.6, 1.4, 0.9, 1.4, 0.5], vertical_alignment="center"
+        brand, heading, theme, refresh, account, actions, navigation = st.columns(
+            [2, 3.6, 1.4, 0.9, 1, 1.4, 0.5], vertical_alignment="center"
         )
         brand.markdown(
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
@@ -1526,28 +1636,33 @@ def main():
             help="Refresh dashboard and clear selections",
         )
 
-    with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
+    with account, st.container(key="account_action"):
+        show_account_menu(username, is_admin)
+
+    with actions, st.container(key="upload_action"), st.popover("Upload Excel", disabled=not (is_admin or rework_page)):
         if rework_page:
-            with st.form("shared_rework_workbook"):
-                location = st.text_input("Shared folder or Excel file path")
-                load_shared = st.form_submit_button("Load tracking workbook")
-            if load_shared:
-                st.session_state.pop("shared_rework_choice", None)
-                try:
-                    st.session_state["shared_rework_files"] = find_rework_workbooks(location)
-                except (ValueError, OSError) as error:
-                    st.session_state.pop("shared_rework_files", None)
-                    st.error(str(error))
-            candidates = st.session_state.get("shared_rework_files", [])
-            shared_file = candidates[0] if len(candidates) == 1 else None
-            if len(candidates) > 1:
-                shared_file = st.selectbox(
-                    "Select the tracking workbook", candidates, index=None,
-                    format_func=lambda path: path.name, key="shared_rework_choice",
-                )
+            shared_file = None
+            if is_admin:
+                with st.form("shared_rework_workbook"):
+                    location = st.text_input("Shared folder or Excel file path")
+                    load_shared = st.form_submit_button("Load tracking workbook")
+                if load_shared:
+                    st.session_state.pop("shared_rework_choice", None)
+                    try:
+                        st.session_state["shared_rework_files"] = find_rework_workbooks(location)
+                    except (ValueError, OSError) as error:
+                        st.session_state.pop("shared_rework_files", None)
+                        st.error(str(error))
+                candidates = st.session_state.get("shared_rework_files", [])
+                shared_file = candidates[0] if len(candidates) == 1 else None
+                if len(candidates) > 1:
+                    shared_file = st.selectbox(
+                        "Select the tracking workbook", candidates, index=None,
+                        format_func=lambda path: path.name, key="shared_rework_choice",
+                    )
             uploaded = st.file_uploader("Rework workbook", type=["xlsx", "xls", "xlsm"], key="rework_barcodes")
             barcode_file = uploaded if uploaded is not None else shared_file
-        else:
+        elif is_admin:
             with st.form("import"):
                 files = st.file_uploader(
                     "MES inspection exports", type=["xlsx", "xls"], accept_multiple_files=True
