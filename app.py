@@ -350,7 +350,6 @@ DASHBOARD_STYLE = """
     height: auto;
 }
 .st-key-theme_action, .st-key-refresh_action, .st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
-.st-key-theme_action [data-testid="stButton"],
 .st-key-refresh_action [data-testid="stButton"],
 .st-key-upload_action [data-testid="stPopover"] {
     display: flex;
@@ -363,13 +362,14 @@ DASHBOARD_STYLE = """
     min-height: var(--header-action-size);
     height: var(--header-action-size);
 }
-.st-key-theme_action button,
 .st-key-refresh_action button {
     box-sizing: border-box;
-    height: var(--header-action-size);
-    padding-inline: .75rem;
+    height: 1.85rem;
+    min-height: 0;
+    padding: 0 .5rem;
 }
-.st-key-theme_action button,
+.st-key-theme_action label { white-space: nowrap; }
+.st-key-theme_action label p { color: #234266; }
 .st-key-refresh_action button,
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
@@ -379,7 +379,6 @@ DASHBOARD_STYLE = """
     font-weight: 700;
     white-space: nowrap;
 }
-.st-key-theme_action button:is(:hover,:focus-visible),
 .st-key-refresh_action button:is(:hover,:focus-visible),
 [data-testid="stPopoverButton"]:is(:hover,:focus-visible),
 [data-testid="stFormSubmitButton"] button:is(:hover,:focus-visible) {
@@ -582,6 +581,7 @@ NIGHT_STYLE = """
 .st-key-grade_summary table tbody tr:nth-child(1) > * { background: #10271f; color: #19d68b; }
 .st-key-grade_summary table tbody tr:nth-child(2) > * { background: #102237; color: #4ea5ff; }
 .pareto-legend, .pareto-zero { color: #aab4c2; }
+.st-key-theme_action label p { color: #f8fafc; }
 .pareto-legend .chart-instruction { color: #4ea5ff; }
 .st-key-analysis_controls button[data-testid="stBaseButton-secondary"] {
     background: #0a0d12;
@@ -1149,11 +1149,7 @@ def main():
         heading.title("Defect Dashboard")
 
     with theme, st.container(key="theme_action"):
-        st.button(
-            "Day / Night", key="dashboard_theme",
-            on_click=st.session_state.__setitem__, args=("night_mode", not night),
-            help="Switch to day theme" if night else "Switch to night theme",
-        )
+        st.toggle("Night mode", key="night_mode", help="Off for Day mode, on for Night mode")
 
     with refresh, st.container(key="refresh_action"):
         st.button(
