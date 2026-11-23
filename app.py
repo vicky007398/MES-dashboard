@@ -366,6 +366,16 @@ DASHBOARD_STYLE = """
     min-width: 0;
 }
 .st-key-dashboard_header [data-testid="stColumn"]:has(h1) { flex: 1 1 auto; }
+@media (min-width: 901px) {
+    .st-key-dashboard_header [data-testid="stHorizontalBlock"] { position: relative; }
+    .st-key-dashboard_header [data-testid="stColumn"]:first-child { flex: 1 1 auto; }
+    .st-key-dashboard_header [data-testid="stColumn"]:has(h1) {
+        position: absolute;
+        inset-inline-start: 50%;
+        transform: translateX(-50%);
+        width: max-content;
+    }
+}
 
 .st-key-upload_action [data-testid="stPopoverButton"] {
     box-sizing: border-box;
@@ -1183,7 +1193,7 @@ def main():
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
             unsafe_allow_html=True,
         )
-        heading.title("Defect Dashboard")
+        heading.title("DEFECT DASHBOARD", anchor=False)
 
     with theme, st.container(key="theme_action"):
         st.toggle("D/N", key="night_mode")
