@@ -28,6 +28,7 @@ def main():
     install_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else bundled_app.parent
     os.environ.setdefault("MES_DB_PATH", str(install_dir / "data" / "mes.sqlite3"))
     flags = {
+        "global.developmentMode": False,
         "server.address": "127.0.0.1",
         "server.port": 8501,
         "server.headless": True,
