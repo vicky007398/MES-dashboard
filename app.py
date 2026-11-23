@@ -349,7 +349,8 @@ DASHBOARD_STYLE = """
     width: min(100%, 170px);
     height: auto;
 }
-.st-key-refresh_action, .st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
+.st-key-theme_action, .st-key-refresh_action, .st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
+.st-key-theme_action [data-testid="stButton"],
 .st-key-refresh_action [data-testid="stButton"],
 .st-key-upload_action [data-testid="stPopover"] {
     display: flex;
@@ -362,11 +363,13 @@ DASHBOARD_STYLE = """
     min-height: var(--header-action-size);
     height: var(--header-action-size);
 }
+.st-key-theme_action button,
 .st-key-refresh_action button {
     box-sizing: border-box;
     height: var(--header-action-size);
     padding-inline: .75rem;
 }
+.st-key-theme_action button,
 .st-key-refresh_action button,
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
@@ -376,6 +379,7 @@ DASHBOARD_STYLE = """
     font-weight: 700;
     white-space: nowrap;
 }
+.st-key-theme_action button:is(:hover,:focus-visible),
 .st-key-refresh_action button:is(:hover,:focus-visible),
 [data-testid="stPopoverButton"]:is(:hover,:focus-visible),
 [data-testid="stFormSubmitButton"] button:is(:hover,:focus-visible) {
@@ -541,6 +545,57 @@ DASHBOARD_STYLE = """
     background: #e9f0fb;
     color: #193c73;
     border-color: #cfdae9;
+}
+</style>
+"""
+
+
+NIGHT_STYLE = """
+<style>
+[data-testid="stAppViewContainer"] {
+    color-scheme: dark;
+    background: #101827;
+    color: #e7eef9;
+}
+[data-testid="stMainBlockContainer"] :is(h1,h2,h3),
+.pareto-zero strong { color: #e7eef9; }
+.st-key-dashboard_header { border-color: #354660; }
+.dashboard-logo { background: #f3f6fb; border-radius: .35rem; padding: .2rem .35rem; }
+[class*="st-key-pareto_"]:not(.st-key-pareto_heading),
+.st-key-grade_summary table {
+    background: #172336;
+    border-color: #354660;
+    color: #e7eef9;
+}
+.st-key-grade_summary table tbody tr:nth-child(even) { background: #1c2b40; }
+.st-key-grade_summary table :is(th,td) { border-color: #354660; }
+.st-key-grade_summary table thead th:nth-child(n),
+.st-key-grade_summary table tbody tr:last-child > * {
+    background: #22334d;
+    color: #d4e5ff;
+}
+.st-key-grade_summary table tbody th { color: #d4e5ff; }
+.st-key-grade_summary table tbody tr:nth-child(1) > * { background: #173b35; color: #a3ebce; }
+.st-key-grade_summary table tbody tr:nth-child(2) > * { background: #233c62; color: #c2dbff; }
+.pareto-legend, .pareto-zero { color: #becde1; }
+.pareto-legend .chart-instruction { color: #a9cbff; }
+.st-key-analysis_controls button[data-testid="stBaseButton-secondary"] {
+    background: #172336;
+    border-color: #425a7c;
+    color: #d4e5ff;
+}
+:is([data-testid="stPopoverBody"], [data-testid="stFileUploaderDropzone"], [role="dialog"]) {
+    color-scheme: dark;
+    background: #172336;
+    color: #e7eef9;
+    border-color: #425a7c;
+}
+[data-testid="stPopoverBody"] :is(label,small,p),
+[data-testid="stFileUploader"] :is(small,span) { color: #d4e5ff; }
+[data-testid="stFileUploaderDropzone"] button {
+    background: #22334d;
+    color: #e7eef9;
+    border-color: #425a7c;
 }
 </style>
 """
@@ -867,12 +922,14 @@ def show_cell_details(location, defect, modules):
 
 
 def show_module_heatmap(records, defect, selection_context=None):
+    night = st.session_state.get("night_mode", False)
+    heat_bands = (("0", "#172336"), *HEAT_BANDS[1:]) if night else HEAT_BANDS
     with st.container(key="heatmap_heading"):
         title, legend = st.columns([1.5, 1], vertical_alignment="center")
         title.subheader(f"Module Heat Map · {defect}" if defect else "Module Heat Map")
     swatches = "".join(
         f'<span><i class="heat-swatch" style="background:{color}"></i>{label}</span>'
-        for label, color in HEAT_BANDS
+        for label, color in heat_bands
     )
     legend.markdown(
         f'<div class="pareto-legend" aria-label="Heat map legend">{swatches}</div>',
@@ -894,26 +951,26 @@ def show_module_heatmap(records, defect, selection_context=None):
         ).fillna("—")
         tooltips.append(alt.Tooltip("Laminator counts:N", title="By laminator"))
     base = alt.Chart(grid).encode(x=x, y=y, tooltip=tooltips)
-    tiles = base.mark_rect(cornerRadius=2, stroke="#d5b8c0", strokeWidth=.65).encode(
+    tiles = base.mark_rect(cornerRadius=2, stroke="#6e5364" if night else "#d5b8c0", strokeWidth=.65).encode(
         color=alt.Color(
             "Modules:Q",
             scale=alt.Scale(type="threshold", domain=[1, 2, 5, 10],
-                            range=[color for _, color in HEAT_BANDS]),
+                            range=[color for _, color in heat_bands]),
             legend=None,
         ),
     )
     labels = base.mark_text(font=CHART_FONT, fontSize=9, fontWeight="bold").encode(
         text="Label:N",
-        color=alt.condition("datum.Modules >= 5", alt.value("#ffffff"), alt.value("#421621")),
+        color=alt.condition("datum.Modules >= 5 || datum.Modules == 0" if night else "datum.Modules >= 5", alt.value("#ffffff"), alt.value("#421621")),
     )
     if defect:
         pick = alt.selection_point(name="cell_pick", fields=["Location"], toggle=False)
         tiles = tiles.mark_rect(
-            cornerRadius=2, stroke="#d5b8c0", strokeWidth=.65, cursor="pointer",
+            cornerRadius=2, stroke="#6e5364" if night else "#d5b8c0", strokeWidth=.65, cursor="pointer",
         ).add_params(pick)
     seam = pd.DataFrame({"Row": list("ABCDEF"), "Display column": 12, "Marker": "*"})
     stars = alt.Chart(seam).mark_text(
-        font=CHART_FONT, fontSize=12, fontWeight="bold", color="#52657e", dy=2,
+        font=CHART_FONT, fontSize=12, fontWeight="bold", color="#becde1" if night else "#52657e", dy=2,
     ).encode(x=x, y=y, text="Marker:N")
     chart = (tiles + labels + stars).properties(
         height=132, padding=alt.Padding(top=1, right=1, bottom=1, left=1), background="transparent",
@@ -937,6 +994,10 @@ def show_module_heatmap(records, defect, selection_context=None):
 
 
 def show_pareto(counts, start, end, grade):
+    night = st.session_state.get("night_mode", False)
+    period_share_color = "#a9cbff" if night else PERIOD_SHARE_COLOR
+    cumulative_color = "#d3a7ff" if night else CUMULATIVE_COLOR
+    defect_name_color = "#86ddce" if night else DEFECT_NAME_COLOR
     with st.container(key="pareto_heading"):
         title, legend = st.columns([1, 2], vertical_alignment="center")
         title.subheader(f"{grade} Defect Pareto")
@@ -958,8 +1019,8 @@ def show_pareto(counts, start, end, grade):
         f'<div class="pareto-legend" aria-label="Chart legend">'
         f'<span><i style="background:{bar_color}"></i>{bar_label}</span>'
         '<span class="chart-instruction">Click a bar for locations</span>'
-        f'<span style="color:{PERIOD_SHARE_COLOR}">% of period</span>'
-        f'<span><i class="legend-line" style="background:{CUMULATIVE_COLOR}"></i>Cumulative %</span>'
+        f'<span style="color:{period_share_color}">% of period</span>'
+        f'<span><i class="legend-line" style="background:{cumulative_color}"></i>Cumulative %</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -1002,7 +1063,7 @@ def show_pareto(counts, start, end, grade):
         ))),
     ).add_params(pick)
     value_labels = base.mark_text(
-        dy=-8, color=PERIOD_SHARE_COLOR, font=CHART_FONT, fontSize=8 if dense else 10, fontWeight="bold"
+        dy=-8, color=period_share_color, font=CHART_FONT, fontSize=8 if dense else 10, fontWeight="bold"
     ).encode(y=count_axis, text=alt.Text("Share of period:Q", format=".2%"))
     quantities = base.mark_text(
         baseline="bottom", dy=-3, font=CHART_FONT,
@@ -1019,14 +1080,14 @@ def show_pareto(counts, start, end, grade):
         "Cumulative share:Q", scale=alt.Scale(domain=[0, 1.23], nice=False), axis=None,
     )
     cumulative = base.mark_line(
-        color=CUMULATIVE_COLOR,
-        point=alt.OverlayMarkDef(fill="#ffffff", stroke=CUMULATIVE_COLOR, strokeWidth=1.5, size=32),
+        color=cumulative_color,
+        point=alt.OverlayMarkDef(fill="#172336" if night else "#ffffff", stroke=cumulative_color, strokeWidth=1.5, size=32),
     ).encode(
         y=cumulative_y, order=alt.Order("Rank:Q"),
     )
     # A shared row keeps each cumulative value aligned with its marker and clear of bar labels.
     cumulative_labels = base.mark_text(
-        color=CUMULATIVE_COLOR, font=CHART_FONT, fontSize=9 if dense else 10, fontWeight="bold",
+        color=cumulative_color, font=CHART_FONT, fontSize=9 if dense else 10, fontWeight="bold",
     ).encode(
         y=alt.value(9),
         text=alt.Text("Cumulative share:Q", format=".0%" if len(counts) > 32 else ".1%"),
@@ -1038,7 +1099,7 @@ def show_pareto(counts, start, end, grade):
         height=236, padding=alt.Padding(top=2, right=2, bottom=2, left=2), background="transparent",
         autosize=alt.AutoSizeParams(type="fit", contains="padding"),
     ).configure_axis(
-        labelFont=CHART_FONT, titleFont=CHART_FONT, labelFontSize=10, titleFontSize=11, labelColor=DEFECT_NAME_COLOR, titleColor="#18253b",
+        labelFont=CHART_FONT, titleFont=CHART_FONT, labelFontSize=10, titleFontSize=11, labelColor=defect_name_color, titleColor="#e7eef9" if night else "#18253b",
         domainColor="#a7b7cd", tickColor="#a7b7cd", grid=False,
     ).configure_view(stroke=None)
     with st.container(key=f"pareto_{grade}"):
@@ -1068,18 +1129,27 @@ def reset_dashboard_view():
 
 def main():
     st.set_page_config(page_title="RPSG | Defect Dashboard", layout="wide")
+    night = st.session_state.get("night_mode", False)
+    style = DASHBOARD_STYLE + (NIGHT_STYLE if night else "")
     if "unsafe_allow_javascript" in signature(st.html).parameters:
-        st.html(DASHBOARD_STYLE + SCREEN_FIT_SCRIPT, unsafe_allow_javascript=True)
+        st.html(style + SCREEN_FIT_SCRIPT, unsafe_allow_javascript=True)
     else:
-        st.markdown(DASHBOARD_STYLE, unsafe_allow_html=True)
+        st.markdown(style, unsafe_allow_html=True)
     initialize()
     with st.container(key="dashboard_header"):
-        brand, heading, refresh, actions = st.columns([2, 5, 0.8, 1.2], vertical_alignment="center")
+        brand, heading, theme, refresh, actions = st.columns([2, 4.4, 0.8, 0.8, 1.2], vertical_alignment="center")
         brand.markdown(
             f'<img class="dashboard-logo" src="{LOGO_DATA_URI}" alt="RPSG Solvanta">',
             unsafe_allow_html=True,
         )
         heading.title("Defect Dashboard")
+
+    with theme, st.container(key="theme_action"):
+        st.button(
+            "Day" if night else "Night", key="dashboard_theme",
+            on_click=st.session_state.__setitem__, args=("night_mode", not night),
+            help="Switch to day theme" if night else "Switch to night theme",
+        )
 
     with refresh, st.container(key="refresh_action"):
         st.button(
