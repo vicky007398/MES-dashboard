@@ -367,10 +367,29 @@ DASHBOARD_STYLE = """
 }
 .st-key-dashboard_header [data-testid="stColumn"]:has(h1) { flex: 1 1 auto; }
 @media (min-width: 901px) {
-    .st-key-dashboard_header [data-testid="stHorizontalBlock"] { position: relative; }
-    .st-key-dashboard_header [data-testid="stColumn"]:first-child { flex: 1 1 auto; }
+    .st-key-dashboard_header [data-testid="stHorizontalBlock"] {
+        position: relative;
+        min-height: var(--header-action-size);
+    }
+    .st-key-dashboard_header h1 {
+        line-height: var(--header-action-size);
+    }
+    .st-key-dashboard_header .dashboard-logo {
+        height: var(--header-action-size);
+        object-fit: contain;
+    }
+    .st-key-dashboard_header [data-testid="stColumn"]:first-child {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline-start: 0;
+        width: 170px;
+    }
+    .st-key-dashboard_header [data-testid="stColumn"]:has(.st-key-theme_action) {
+        margin-inline-start: auto;
+    }
     .st-key-dashboard_header [data-testid="stColumn"]:has(h1) {
         position: absolute;
+        inset-block-start: 0;
         inset-inline-start: 50%;
         transform: translateX(-50%);
         width: max-content;
