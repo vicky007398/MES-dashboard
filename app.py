@@ -873,9 +873,17 @@ SCREEN_FIT_SCRIPT = """
 """
 
 
+DB_SCHEMA_VERSION = 1
+
+
 def initialize():
     DB.parent.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(DB)) as db, db:
+    with closing(sqlite3.connect(DB, timeout=15)) as db, db:
+        if db.execute("PRAGMA user_version").fetchone()[0] >= DB_SCHEMA_VERSION:
+            return
+        db.execute("BEGIN IMMEDIATE")
+        if db.execute("PRAGMA user_version").fetchone()[0] >= DB_SCHEMA_VERSION:
+            return
         db.execute("""
             CREATE TABLE IF NOT EXISTS inspections (
                 record_key TEXT PRIMARY KEY,
@@ -929,6 +937,7 @@ def initialize():
             )
         if db.execute("SELECT 1 FROM dashboard_accounts WHERE username = 'admin'").fetchone() is None:
             write_account(db, "admin", "admin", getenv("MES_ADMIN_PASSWORD") or "12345")
+        db.execute(f"PRAGMA user_version = {DB_SCHEMA_VERSION}")
 
 
 def password_digest(password, salt):
@@ -944,7 +953,7 @@ def write_account(db, username, role, password):
 
 
 def verify_login(username, role, password):
-    with closing(sqlite3.connect(DB)) as db:
+    with closing(sqlite3.connect(DB, timeout=15)) as db:
         record = db.execute(
             "SELECT username, salt, password_hash FROM dashboard_accounts WHERE username = ? AND role = ?",
             (username, role),
@@ -986,7 +995,7 @@ def show_account_menu(username, is_admin):
                     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", new_user.strip()) or not new_password:
                         st.error("Enter a username using letters, numbers, dots, underscores or hyphens, and a password.")
                     else:
-                        with closing(sqlite3.connect(DB)) as db, db:
+                        with closing(sqlite3.connect(DB, timeout=15)) as db, db:
                             created = write_account(db, new_user.strip(), "user", new_password)
                         if created:
                             st.success("User created.")
@@ -1002,7 +1011,7 @@ def show_account_menu(username, is_admin):
                         st.error("Enter the correct current password and a new password.")
                     else:
                         salt = token_bytes(16)
-                        with closing(sqlite3.connect(DB)) as db, db:
+                        with closing(sqlite3.connect(DB, timeout=15)) as db, db:
                             db.execute(
                                 "UPDATE dashboard_accounts SET salt = ?, password_hash = ? WHERE username = ?",
                                 (salt, password_digest(replacement, salt), username),
@@ -1095,7 +1104,7 @@ def save_rows(rows):
     ]
     gp_reasons = [(record[0], row[-2]) for record, row in zip(values, rows) if row[-2]]
     laminators = [(record[0], row[-1]) for record, row in zip(values, rows) if row[-1]]
-    with closing(sqlite3.connect(DB)) as db, db:
+    with closing(sqlite3.connect(DB, timeout=15)) as db, db:
         db.executemany("""
             INSERT INTO inspections (record_key, serial, time, stage, shift, grade, position, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1117,7 +1126,7 @@ def save_rows(rows):
 
 @st.cache_data(show_spinner=False, max_entries=2)
 def load_history(database_version):
-    with closing(sqlite3.connect(DB)) as db:
+    with closing(sqlite3.connect(DB, timeout=15)) as db:
         frame = pd.read_sql_query(
             """SELECT i.serial, i.time, i.stage, i.shift, i.grade, i.position, i.reason,
                       COALESCE(gp.reason, i.reason), COALESCE(lami.location, '')
@@ -1618,7 +1627,7 @@ def publish_rework_batch(file):
     if st.session_state.get("published_rework_source") == identity:
         return
     modules = read_rework_modules(source)
-    with closing(sqlite3.connect(DB)) as db, db:
+    with closing(sqlite3.connect(DB, timeout=15)) as db, db:
         db.executemany(
             """INSERT INTO dashboard_rework_modules (barcode, made_on) VALUES (?, ?)
                ON CONFLICT(barcode) DO UPDATE SET made_on = excluded.made_on
@@ -1629,7 +1638,7 @@ def publish_rework_batch(file):
 
 
 def show_rework_analysis(history, is_admin):
-    with closing(sqlite3.connect(DB)) as db:
+    with closing(sqlite3.connect(DB, timeout=15)) as db:
         modules = db.execute("SELECT barcode, made_on FROM dashboard_rework_modules ORDER BY barcode").fetchall()
     periods = dashboard_periods() + [("All dates", None, None)]
     default = 0 if any(made_on for _, made_on in modules) else len(periods) - 1
@@ -1715,7 +1724,15 @@ def main():
         st.html(style + SCREEN_FIT_SCRIPT, unsafe_allow_javascript=True)
     else:
         st.markdown(style, unsafe_allow_html=True)
-    initialize()
+    try:
+        initialize()
+    except sqlite3.OperationalError as error:
+        if not any(word in str(error).lower() for word in ("locked", "busy")):
+            raise
+        st.error("The database is still busy. Close any other dashboard or database editor using this file, then try again.")
+        st.button("Retry database connection")
+        st.html('<span id="dashboard-ready" hidden></span>')
+        return
     signed_in = st.session_state.get("signed_in_account")
     if signed_in is None:
         show_sign_in()
