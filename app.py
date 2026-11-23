@@ -363,38 +363,11 @@ DASHBOARD_STYLE = """
     height: var(--header-action-size);
 }
 .st-key-refresh_action button {
-    position: relative;
     box-sizing: border-box;
-    width: var(--header-action-size);
     height: var(--header-action-size);
-    min-height: 0;
-    padding: 0;
-    border: 1px solid #245cbd;
-    border-radius: .4rem;
-    background: #245cbd;
-    color: #fff;
+    padding-inline: .75rem;
 }
-.st-key-refresh_action button:is(:hover,:focus-visible) {
-    background: #194ac5;
-    color: #fff;
-}
-.st-key-refresh_action button p {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-}
-.st-key-refresh_action button::after {
-    content: "";
-    width: 1.3rem;
-    height: 1.3rem;
-    position: absolute;
-    inset: 0;
-    margin: auto;
-    pointer-events: none;
-    background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 4v5h-5M20 9a8 8 0 1 0 .2 5'/%3E%3C/svg%3E");
-}
+.st-key-refresh_action button,
 [data-testid="stPopoverButton"],
 [data-testid="stFormSubmitButton"] button {
     background: #245cbd;
@@ -403,6 +376,7 @@ DASHBOARD_STYLE = """
     font-weight: 700;
     white-space: nowrap;
 }
+.st-key-refresh_action button:is(:hover,:focus-visible),
 [data-testid="stPopoverButton"]:is(:hover,:focus-visible),
 [data-testid="stFormSubmitButton"] button:is(:hover,:focus-visible) {
     background: #194ac5;
