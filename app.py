@@ -351,8 +351,7 @@ DASHBOARD_STYLE = """
 }
 .st-key-refresh_action, .st-key-upload_action, .st-key-grade_buttons { align-items: flex-end; }
 .st-key-refresh_action [data-testid="stButton"],
-.st-key-upload_action [data-testid="stPopover"],
-.st-key-grade_buttons [data-testid="stButtonGroup"] {
+.st-key-upload_action [data-testid="stPopover"] {
     display: flex;
     width: 100%;
     justify-content: flex-end;
@@ -415,10 +414,16 @@ DASHBOARD_STYLE = """
 .st-key-analysis_controls, [class*="st-key-pareto_"]:not(.st-key-pareto_heading) {
     margin-top: .65rem;
 }
-.st-key-analysis_controls [data-testid="stButtonGroup"] [role="radiogroup"] {
+.st-key-analysis_controls :is(.st-key-period_buttons, .st-key-grade_buttons) [data-testid="stHorizontalBlock"] {
     gap: .4rem;
+    flex-wrap: wrap;
 }
-.st-key-analysis_controls [data-testid="stButtonGroup"] button {
+.st-key-analysis_controls :is(.st-key-period_buttons, .st-key-grade_buttons) [data-testid="stColumn"] {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+}
+.st-key-analysis_controls [data-testid="stButton"] button {
     padding: .16rem .7rem;
     min-height: 1.9rem;
     border: 1px solid #c9d9ef;
@@ -426,12 +431,12 @@ DASHBOARD_STYLE = """
     background: #ffffff;
     color: #234266;
 }
-.st-key-analysis_controls [data-testid="stButtonGroup"] button[aria-checked="true"] {
+.st-key-analysis_controls button[data-testid="stBaseButton-primary"] {
     background: #245cbd;
     color: #ffffff;
     border-color: #245cbd;
 }
-.st-key-grade_buttons [data-testid="stButtonGroup"] [role="radiogroup"] {
+.st-key-grade_buttons [data-testid="stHorizontalBlock"] {
     justify-content: flex-end;
     width: 100%;
 }
@@ -1071,6 +1076,8 @@ def show_defect_analysis(records, counts, start, end, grade):
 
 
 def reset_dashboard_view():
+    st.session_state["selected_period"] = 0
+    st.session_state["selected_grade"] = "G2"
     st.session_state["dashboard_view_version"] = st.session_state.get("dashboard_view_version", 0) + 1
     reset_cell_selection()
 
@@ -1147,22 +1154,25 @@ def main():
 
     with st.container(key="analysis_heading"):
         st.header("Defect Analysis")
-    period_labels = [label for label, _, _ in periods]
-    view_version = st.session_state.get("dashboard_view_version", 0)
+    period_index = st.session_state.get("selected_period", 0)
+    grade = st.session_state.get("selected_grade", "G2")
     with st.container(key="analysis_controls"):
         period_buttons, grade_buttons = st.columns([3, 1], vertical_alignment="center")
-        with period_buttons:
-            period_label = st.segmented_control(
-                "Period", period_labels, default="MTD", label_visibility="collapsed",
-                key=f"dashboard_period_{view_version}",
-            )
+        with period_buttons, st.container(key="period_buttons"):
+            for index, (column, (label, _, _)) in enumerate(zip(st.columns(len(periods)), periods)):
+                column.button(
+                    label, key=f"period_choice_{index}",
+                    type="primary" if index == period_index else "secondary",
+                    on_click=st.session_state.__setitem__, args=("selected_period", index),
+                )
         with grade_buttons, st.container(key="grade_buttons"):
-            grade = st.segmented_control(
-                "Grade", GRADES[2:], default="G2", label_visibility="collapsed",
-                key=f"dashboard_grade_{view_version}",
-            )
-    _, start, end = next(period for period in periods if period[0] == (period_label or "MTD"))
-    grade = grade or "G2"
+            for column, choice in zip(st.columns(len(GRADES[2:])), GRADES[2:]):
+                column.button(
+                    choice, key=f"grade_choice_{choice}",
+                    type="primary" if choice == grade else "secondary",
+                    on_click=st.session_state.__setitem__, args=("selected_grade", choice),
+                )
+    _, start, end = periods[period_index]
     period = history.loc[history["Date"].between(start.isoformat(), end.isoformat())]
     records = period.loc[period["Grade"].eq(grade)]
     show_defect_analysis(records, defect_pareto(records, len(period)), start, end, grade)
