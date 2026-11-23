@@ -357,6 +357,16 @@ DASHBOARD_STYLE = """
     justify-content: flex-end;
 }
 .st-key-dashboard_header { --header-action-size: 2.5rem; }
+.st-key-dashboard_header [data-testid="stHorizontalBlock"] { gap: .45rem; }
+.st-key-dashboard_header [data-testid="stColumn"]:has(
+    :is(.st-key-theme_action, .st-key-refresh_action, .st-key-upload_action)
+) {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: 0;
+}
+.st-key-dashboard_header [data-testid="stColumn"]:has(h1) { flex: 1 1 auto; }
+
 .st-key-upload_action [data-testid="stPopoverButton"] {
     box-sizing: border-box;
     min-height: var(--header-action-size);
@@ -364,9 +374,28 @@ DASHBOARD_STYLE = """
 }
 .st-key-refresh_action button {
     box-sizing: border-box;
+    position: relative;
+    width: 1.85rem;
     height: 1.85rem;
     min-height: 0;
-    padding: 0 .5rem;
+    padding: 0;
+}
+.st-key-refresh_action button p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+.st-key-refresh_action button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 1.15rem;
+    height: 1.15rem;
+    pointer-events: none;
+    background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 4v5h-5M20 9a8 8 0 1 0 .2 5'/%3E%3C/svg%3E");
 }
 .st-key-theme_action label { white-space: nowrap; }
 .st-key-theme_action label p { color: #234266; }
@@ -490,6 +519,10 @@ DASHBOARD_STYLE = """
 .st-key-grade_summary table thead th:nth-child(n+8) { color: #8a5107; }
 .st-key-grade_summary table tbody tr:nth-child(1) > * { background: #dcf7eb; color: #096245; font-weight: 700; }
 .st-key-grade_summary table tbody tr:nth-child(2) > * { background: #e0edff; color: #214e91; font-weight: 700; }
+.st-key-grade_summary table tbody tr:nth-last-child(2) > * {
+    background: #fce5e7;
+    color: #982936;
+}
 .pareto-legend {
     display: flex;
     justify-content: flex-end;
@@ -580,6 +613,10 @@ NIGHT_STYLE = """
 .st-key-grade_summary table tbody th { color: #f8fafc; }
 .st-key-grade_summary table tbody tr:nth-child(1) > * { background: #10271f; color: #19d68b; }
 .st-key-grade_summary table tbody tr:nth-child(2) > * { background: #102237; color: #4ea5ff; }
+.st-key-grade_summary table tbody tr:nth-last-child(2) > * {
+    background: #381d25;
+    color: #ff9ba3;
+}
 .pareto-legend, .pareto-zero { color: #aab4c2; }
 .st-key-theme_action label p { color: #f8fafc; }
 .pareto-legend .chart-instruction { color: #4ea5ff; }
