@@ -701,6 +701,12 @@ DASHBOARD_STYLE = """
     .st-key-grade_summary table :is(th,td) { padding-block: .12rem; }
 }
 
+[data-testid="stPopoverBody"]:has(.st-key-account_menu) {
+    width: min(19rem, calc(100vw - 2rem));
+    padding: .65rem;
+}
+.st-key-account_menu [data-testid="stVerticalBlock"] { gap: .4rem; }
+.st-key-account_menu [data-testid="stHorizontalBlock"] { gap: .4rem; }
 [data-testid="stPopoverBody"], [data-testid="stFileUploaderDropzone"] {
     color-scheme: light;
     background: #ffffff;
@@ -943,7 +949,7 @@ def show_sign_in():
             '<h1 class="sign-in-title">Defect Dashboard</h1>'
         )
         with st.form("login", clear_on_submit=True):
-            role = st.radio("Sign in as", ("Admin", "User"), horizontal=True)
+            role = st.radio("Sign in as", ("Admin", "User"), horizontal=True, key="login_role")
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
             submitted = st.form_submit_button("Sign in")
@@ -956,40 +962,47 @@ def show_sign_in():
 
 
 def show_account_menu(username, is_admin):
-    with st.popover("Account"):
+    with st.popover("Account"), st.container(key="account_menu"):
         st.write(f"Signed in as {username}")
         if is_admin:
-            with st.form("new_dashboard_user", clear_on_submit=True):
-                new_user = st.text_input("New username")
-                new_password = st.text_input("New user password", type="password")
-                create = st.form_submit_button("Create user")
-            if create:
-                if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", new_user.strip()) or not new_password:
-                    st.error("Enter a username using letters, numbers, dots, underscores or hyphens, and a password.")
-                else:
-                    with closing(sqlite3.connect(DB)) as db, db:
-                        created = write_account(db, new_user.strip(), "user", new_password)
-                    if created:
-                        st.success("User created.")
+            with st.expander("Create user"):
+                with st.form("new_dashboard_user", clear_on_submit=True):
+                    new_user = st.text_input("New username")
+                    new_password = st.text_input("New user password", type="password")
+                    create = st.form_submit_button("Create user")
+                if create:
+                    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", new_user.strip()) or not new_password:
+                        st.error("Enter a username using letters, numbers, dots, underscores or hyphens, and a password.")
                     else:
-                        st.error("That username already exists.")
-            with st.form("change_dashboard_password", clear_on_submit=True):
-                current = st.text_input("Current password", type="password")
-                replacement = st.text_input("New password", type="password")
-                change = st.form_submit_button("Change password")
-            if change:
-                if not replacement or not verify_login(username, "admin", current):
-                    st.error("Enter the correct current password and a new password.")
-                else:
-                    salt = token_bytes(16)
-                    with closing(sqlite3.connect(DB)) as db, db:
-                        db.execute(
-                            "UPDATE dashboard_accounts SET salt = ?, password_hash = ? WHERE username = ?",
-                            (salt, password_digest(replacement, salt), username),
-                        )
-                    st.success("Password changed.")
-        if st.button("Sign out"):
+                        with closing(sqlite3.connect(DB)) as db, db:
+                            created = write_account(db, new_user.strip(), "user", new_password)
+                        if created:
+                            st.success("User created.")
+                        else:
+                            st.error("That username already exists.")
+            with st.expander("Change password"):
+                with st.form("change_dashboard_password", clear_on_submit=True):
+                    current = st.text_input("Current password", type="password")
+                    replacement = st.text_input("New password", type="password")
+                    change = st.form_submit_button("Change password")
+                if change:
+                    if not replacement or not verify_login(username, "admin", current):
+                        st.error("Enter the correct current password and a new password.")
+                    else:
+                        salt = token_bytes(16)
+                        with closing(sqlite3.connect(DB)) as db, db:
+                            db.execute(
+                                "UPDATE dashboard_accounts SET salt = ?, password_hash = ? WHERE username = ?",
+                                (salt, password_digest(replacement, salt), username),
+                            )
+                        st.success("Password changed.")
+        switch, sign_out = st.columns(2)
+        switch_account = switch.button("Switch account")
+        logout = sign_out.button("Sign out")
+        if switch_account or logout:
             st.session_state.clear()
+            if switch_account:
+                st.session_state["login_role"] = "User" if is_admin else "Admin"
             st.rerun()
 
 
