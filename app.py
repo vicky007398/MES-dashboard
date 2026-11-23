@@ -1186,7 +1186,7 @@ def main():
         heading.title("Defect Dashboard")
 
     with theme, st.container(key="theme_action"):
-        st.toggle("Night mode", key="night_mode", help="Off for Day mode, on for Night mode")
+        st.toggle("D/N", key="night_mode")
 
     with refresh, st.container(key="refresh_action"):
         st.button(
