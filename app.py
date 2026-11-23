@@ -598,11 +598,12 @@ DASHBOARD_STYLE = """
 .sign-in-brand { display: block; width: 10rem; margin: 0 auto .9rem; }
 .sign-in-title { text-align: center; font-family: "JetBrains Mono", monospace; }
 #rework-grade-heading { margin: 0 0 .7rem; }
+.rework-summary { --rework-panel-gap: .6rem; }
 .rework-kpis {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
     gap: .55rem;
-    margin: .2rem 0 .4rem;
+    margin: .2rem 0 0;
     font-family: "JetBrains Mono", monospace;
     color: #18253b;
 }
@@ -629,6 +630,8 @@ DASHBOARD_STYLE = """
 .rework-kpi[data-grade] { cursor: default; }
 .rework-defects {
     display: none;
+    position: relative;
+    margin-top: var(--rework-panel-gap);
     --accent: var(--day-accent);
     padding: .65rem .8rem;
     border: 1px solid var(--accent);
@@ -637,7 +640,14 @@ DASHBOARD_STYLE = """
     color: #18253b;
 }
 .rework-defects:hover { display: block; }
-.rework-kpis:has(.rework-kpi[data-grade]:hover) { margin-bottom: 0; }
+/* Keep the open panel hoverable across the visible gap. */
+.rework-defects::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 100%;
+    height: calc(var(--rework-panel-gap) + 2px);
+}
 .rework-defect-row {
     display: grid;
     grid-template-columns: minmax(6rem, 25%) minmax(0, 1fr) 3rem;
