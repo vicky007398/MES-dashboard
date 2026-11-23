@@ -1259,18 +1259,31 @@ def read_rework_barcodes(file):
     raise ValueError("Add Starting Barcode No and Ending Barcode No columns, or a Barcode column.")
 
 
-def find_rework_workbook(folder):
-    if not folder.strip():
-        raise ValueError("Enter the shared folder path.")
-    matches = sorted(
-        path for path in Path(folder.strip().strip('"')).iterdir()
-        if path.suffix.lower() in {".xlsx", ".xls", ".xlsm"}
-        and re.sub(r"[^a-z0-9]", "", path.stem.casefold()) == "stringreworkmoduletracking"
-        and path.is_file()
+def find_rework_workbooks(location):
+    location = location.strip().strip('"')
+    if not location:
+        raise ValueError("Enter the shared folder path or the full Excel file path.")
+    path = Path(location)
+    extensions = {".xlsx", ".xls", ".xlsm"}
+    if path.is_file():
+        if path.suffix.lower() not in extensions or path.name.startswith("~$"):
+            raise ValueError("Select an Excel workbook ending in .xlsx, .xls or .xlsm.")
+        return [path]
+
+    workbooks = sorted(
+        (
+            entry for entry in path.iterdir()
+            if entry.suffix.lower() in extensions and not entry.name.startswith("~$") and entry.is_file()
+        ),
+        key=lambda entry: entry.name.casefold(),
     )
-    if len(matches) != 1:
-        raise ValueError("Expected one workbook named String Rework Module Tracking in that folder.")
-    return matches[0]
+    if not workbooks:
+        raise ValueError("No Excel workbooks were found in this folder.")
+    matches = [
+        entry for entry in workbooks
+        if "stringreworkmoduletracking" in re.sub(r"[^a-z0-9]", "", entry.stem.casefold())
+    ]
+    return matches or workbooks
 
 
 def rework_lookup(history, barcodes):
@@ -1372,16 +1385,24 @@ def main():
     with actions, st.container(key="upload_action"), st.popover("Upload Excel"):
         if rework_page:
             with st.form("shared_rework_workbook"):
-                folder = st.text_input("Shared folder path")
+                location = st.text_input("Shared folder or Excel file path")
                 load_shared = st.form_submit_button("Load tracking workbook")
             if load_shared:
+                st.session_state.pop("shared_rework_choice", None)
                 try:
-                    st.session_state["shared_rework_file"] = find_rework_workbook(folder)
+                    st.session_state["shared_rework_files"] = find_rework_workbooks(location)
                 except (ValueError, OSError) as error:
-                    st.session_state.pop("shared_rework_file", None)
+                    st.session_state.pop("shared_rework_files", None)
                     st.error(str(error))
+            candidates = st.session_state.get("shared_rework_files", [])
+            shared_file = candidates[0] if len(candidates) == 1 else None
+            if len(candidates) > 1:
+                shared_file = st.selectbox(
+                    "Select the tracking workbook", candidates, index=None,
+                    format_func=lambda path: path.name, key="shared_rework_choice",
+                )
             uploaded = st.file_uploader("Rework workbook", type=["xlsx", "xls", "xlsm"], key="rework_barcodes")
-            barcode_file = uploaded if uploaded is not None else st.session_state.get("shared_rework_file")
+            barcode_file = uploaded if uploaded is not None else shared_file
         else:
             with st.form("import"):
                 files = st.file_uploader(
