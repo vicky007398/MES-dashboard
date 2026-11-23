@@ -1221,16 +1221,27 @@ def show_defect_analysis(records, counts, start, end, grade):
 def read_rework_barcodes(file):
     with pd.ExcelFile(file) as workbook:
         for sheet in workbook.sheet_names:
-            frame = workbook.parse(sheet, dtype=str, keep_default_na=False)
-            headers = {
-                re.sub(r"[^a-z0-9]", "", str(column).casefold()): column
-                for column in frame.columns
-            }
-            start = next((headers[key] for key in ("startingbarcodeno", "startingbarcode") if key in headers), None)
-            end = next((headers[key] for key in ("endingbarcodeno", "endingbarcode") if key in headers), None)
+            frame = workbook.parse(sheet, header=None, dtype=str, keep_default_na=False)
+            for header_row, values in enumerate(frame.itertuples(index=False, name=None)):
+                headers = {
+                    re.sub(r"[^a-z0-9]", "", value.casefold()): index
+                    for index, value in enumerate(values)
+                }
+                start = next((headers[key] for key in (
+                    "startingbarcodeno", "startingbarcode", "barcodestartingno", "barcodestarting"
+                ) if key in headers), None)
+                end = next((headers[key] for key in (
+                    "endingbarcodeno", "endingbarcode", "barcodeendingno", "barcodeending"
+                ) if key in headers), None)
+                column = next((value for key, value in headers.items() if key in BARCODE_HEADERS), None)
+                if (start is not None and end is not None) or column is not None:
+                    break
+            else:
+                continue
+            data = frame.iloc[header_row + 1:]
             if start is not None and end is not None:
                 barcodes = {}
-                for row, (first, last) in enumerate(frame[[start, end]].itertuples(index=False, name=None), 2):
+                for row, (first, last) in enumerate(data.iloc[:, [start, end]].itertuples(index=False, name=None), header_row + 2):
                     first, last = first.strip().upper(), last.strip().upper()
                     if not first and not last:
                         continue
@@ -1251,12 +1262,11 @@ def read_rework_barcodes(file):
                         barcodes[f"{prefix}{str(number).zfill(width)}{suffix}"] = None
                 if barcodes:
                     return list(barcodes)
-            column = next((value for key, value in headers.items() if key in BARCODE_HEADERS), None)
             if column is not None:
-                barcodes = list(dict.fromkeys(value.strip().upper() for value in frame[column] if value.strip()))
+                barcodes = list(dict.fromkeys(value.strip().upper() for value in data.iloc[:, column] if value.strip()))
                 if barcodes:
                     return barcodes
-    raise ValueError("Add Starting Barcode No and Ending Barcode No columns, or a Barcode column.")
+    raise ValueError("Add Barcode Starting No. and Barcode Ending No. columns, or a Barcode column.")
 
 
 def find_rework_workbooks(location):
